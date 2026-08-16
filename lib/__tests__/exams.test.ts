@@ -36,7 +36,7 @@ describe("Exams CRUD", () => {
 
   it("update exam", async () => {
     tables.exams.push({ id: "e1", courseId: "c1", term: "Term 1", date: "2026-03-15", totalMarks: 100 })
-    const updated = await updateItem("exams", "e1", { totalMarks: 150 } as any)
+    const updated: any = await updateItem("exams", "e1", { totalMarks: 150 } as any)
     expect(updated.totalMarks).toBe(150)
   })
 

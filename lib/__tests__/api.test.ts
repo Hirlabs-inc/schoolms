@@ -115,7 +115,7 @@ describe("Generic CRUD", () => {
   })
 
   it("addItem inserts and returns with id", async () => {
-    const course = await addItem("courses", { name: "Science", code: "SCI", classId: "c1", teacherId: "t1" })
+    const course: any = await addItem("courses", { name: "Science", code: "SCI", classId: "c1", teacherId: "t1" })
     expect(course.id).toBeDefined()
     const { tables } = await import("../../vitest.setup")
     expect(tables.courses).toHaveLength(1)
@@ -145,7 +145,7 @@ describe("Generic CRUD", () => {
   })
 
   it("upsertItem inserts new", async () => {
-    const r = await upsertItem("courses", { name: "New", code: "NEW", classId: "c1", teacherId: "t1" })
+    const r: any = await upsertItem("courses", { name: "New", code: "NEW", classId: "c1", teacherId: "t1" })
     expect(r.id).toBeDefined()
   })
 
@@ -221,7 +221,7 @@ describe("createUser (Admin-only)", () => {
     await expect(createUser({
       email: "bad@t.com", password: "pass", role: "STUDENT",
       firstName: "B", lastName: "D",
-    })).rejects.toThrow("Only admins can create users")
+    })).rejects.toThrow("Forbidden: insufficient role")
   })
 
   it("generateStudentNumber returns correct format", () => {

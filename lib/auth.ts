@@ -2,8 +2,12 @@ import "server-only"
 import { SignJWT, jwtVerify, decodeJwt } from "jose"
 import bcrypt from "bcryptjs"
 
+const SECRET_VALUE = process.env.JWT_SECRET
+if (process.env.NODE_ENV === "production" && !SECRET_VALUE) {
+  throw new Error("FATAL: JWT_SECRET environment variable is required in production")
+}
 const SECRET_KEY = new TextEncoder().encode(
-  process.env.JWT_SECRET || "trainify-default-secret-change-in-production"
+  SECRET_VALUE || "trainify-dev-insecure-secret-do-not-use-in-production"
 )
 
 export interface SessionUser {

@@ -70,7 +70,7 @@ describe("Attendance CRUD", () => {
 
   it("update attendance status", async () => {
     tables.attendance.push({ id: "a1", type: "STUDENT", studentId: "s1", date: "2026-01-15", status: "ABSENT" })
-    const updated = await updateItem("attendance", "a1", { status: "PRESENT" } as any)
+    const updated: any = await updateItem("attendance", "a1", { status: "PRESENT" } as any)
     expect(updated.status).toBe("PRESENT")
   })
 

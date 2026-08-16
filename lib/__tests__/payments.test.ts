@@ -60,7 +60,7 @@ describe("Payments CRUD", () => {
 
   it("update payment", async () => {
     tables.payments.push({ id: "p1", studentId: "s1", feeId: "f1", amount: 10000, paymentDate: "2026-01-15", paymentMethod: "CASH", receiptNumber: "RCP001" })
-    const updated = await updateItem("payments", "p1", { amount: 12000, notes: "Updated" } as any)
+    const updated: any = await updateItem("payments", "p1", { amount: 12000, notes: "Updated" } as any)
     expect(updated.amount).toBe(12000)
     expect(updated.notes).toBe("Updated")
   })

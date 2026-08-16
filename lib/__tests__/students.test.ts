@@ -72,13 +72,13 @@ describe("Students - CRUD", () => {
 
   it("update student class", async () => {
     tables.students.push({ id: "s1", studentNumber: "STU001", classId: "cl1", academicYear: 1 })
-    const updated = await updateItem("students", "s1", { classId: "cl2" } as any)
+    const updated: any = await updateItem("students", "s1", { classId: "cl2" } as any)
     expect(updated.classId).toBe("cl2")
   })
 
   it("update student parentPhone", async () => {
     tables.students.push({ id: "s1", studentNumber: "STU001", parentPhone: "+254700" })
-    const updated = await updateItem("students", "s1", { parentPhone: "+254711" } as any)
+    const updated: any = await updateItem("students", "s1", { parentPhone: "+254711" } as any)
     expect(updated.parentPhone).toBe("+254711")
   })
 

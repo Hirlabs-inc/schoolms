@@ -56,7 +56,7 @@ describe("RBAC - Admin access", () => {
 
   it("admin can update items", async () => {
     tables.courses.push({ id: "c1", name: "Old", code: "OLD", classId: "cl1", teacherId: "t1" })
-    const u = await updateItem("courses", "c1", { name: "New" } as any)
+    const u: any = await updateItem("courses", "c1", { name: "New" } as any)
     expect(u.name).toBe("New")
   })
 
@@ -138,7 +138,7 @@ describe("RBAC - Student cannot create users", () => {
     await expect(createUser({
       email: "bad@t.com", password: "p", role: "STUDENT",
       firstName: "B", lastName: "D",
-    })).rejects.toThrow("Only admins can create users")
+    })).rejects.toThrow("Forbidden: insufficient role")
   })
 })
 
@@ -153,7 +153,7 @@ describe("RBAC - Teacher cannot create users", () => {
     await expect(createUser({
       email: "bad@t.com", password: "p", role: "STUDENT",
       firstName: "B", lastName: "D",
-    })).rejects.toThrow("Only admins can create users")
+    })).rejects.toThrow("Forbidden: insufficient role")
   })
 })
 

@@ -36,7 +36,7 @@ describe("Courses CRUD", () => {
 
   it("update course", async () => {
     tables.courses.push({ id: "c1", name: "Old", code: "OLD", classId: "cl1", teacherId: "t1" })
-    const updated = await updateItem("courses", "c1", { name: "New", teacherId: "t2" } as any)
+    const updated: any = await updateItem("courses", "c1", { name: "New", teacherId: "t2" } as any)
     expect(updated.name).toBe("New")
     expect(updated.teacherId).toBe("t2")
   })
@@ -86,7 +86,7 @@ describe("Classes CRUD", () => {
 
   it("update class", async () => {
     tables.classes.push({ id: "cl1", name: "Old Grade", gradeLevel: 1 })
-    const updated = await updateItem("classes", "cl1", { name: "Grade 1 Updated" } as any)
+    const updated: any = await updateItem("classes", "cl1", { name: "Grade 1 Updated" } as any)
     expect(updated.name).toBe("Grade 1 Updated")
   })
 

@@ -59,7 +59,7 @@ describe("Income CRUD", () => {
 
   it("update income", async () => {
     tables.income.push({ id: "i1", category: "FEES", amount: 10000, description: "Old", incomeDate: "2026-01-01" })
-    const updated = await updateItem("income", "i1", { amount: 15000, description: "Updated" } as any)
+    const updated: any = await updateItem("income", "i1", { amount: 15000, description: "Updated" } as any)
     expect(updated.amount).toBe(15000)
     expect(updated.description).toBe("Updated")
   })
@@ -189,7 +189,7 @@ describe("Expenses CRUD", () => {
 
   it("update expense", async () => {
     tables.expenses.push({ id: "e1", category: "RENT", amount: 50000, description: "Old", expenseDate: "2026-01-01" })
-    const updated = await updateItem("expenses", "e1", { amount: 55000, description: "Updated" } as any)
+    const updated: any = await updateItem("expenses", "e1", { amount: 55000, description: "Updated" } as any)
     expect(updated.amount).toBe(55000)
   })
 

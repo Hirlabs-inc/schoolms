@@ -56,7 +56,7 @@ describe("Teachers - CRUD", () => {
 
   it("update teacher department", async () => {
     tables.teachers.push({ id: "t1", staffId: "TCH001", department: "Science" })
-    const updated = await updateItem("teachers", "t1", { department: "Math" } as any)
+    const updated: any = await updateItem("teachers", "t1", { department: "Math" } as any)
     expect(updated.department).toBe("Math")
   })
 

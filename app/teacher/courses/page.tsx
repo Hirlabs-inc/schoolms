@@ -4,7 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { getItems } from "@/lib/api"
-import type { Course, Student, InstitutionSettings } from "@/lib/types"
+import type { Course, Student, Fee, InstitutionSettings } from "@/lib/types"
 import { BookOpen, Loader2 } from "lucide-react"
 import { useEffect, useState } from "react"
 import { useUser } from "@/contexts/user-context"

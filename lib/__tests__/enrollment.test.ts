@@ -26,7 +26,7 @@ describe("Enrollment Progress CRUD", () => {
 
   it("update progress percentage", async () => {
     tables.enrollment_progress.push({ id: "ep1", studentId: "s1", courseId: "c1", progressPercent: 0, status: "ENROLLED" })
-    const updated = await updateItem("enrollmentProgress", "ep1", { progressPercent: 50, status: "IN_PROGRESS" } as any)
+    const updated: any = await updateItem("enrollmentProgress", "ep1", { progressPercent: 50, status: "IN_PROGRESS" } as any)
     expect(updated.progressPercent).toBe(50)
     expect(updated.status).toBe("IN_PROGRESS")
   })

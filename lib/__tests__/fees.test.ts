@@ -59,7 +59,7 @@ describe("Fees - CRUD", () => {
 
   it("update fee balance", async () => {
     tables.fees.push({ id: "f1", studentId: "s1", courseId: "c1", totalFee: 30000, balance: 30000, status: "PENDING" })
-    const updated = await updateItem("fees", "f1", { balance: 15000, status: "PARTIAL" } as any)
+    const updated: any = await updateItem("fees", "f1", { balance: 15000, status: "PARTIAL" } as any)
     expect(updated.balance).toBe(15000)
     expect(updated.status).toBe("PARTIAL")
   })

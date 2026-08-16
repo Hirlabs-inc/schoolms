@@ -112,8 +112,8 @@ function parseCondition(cond: string, args: any[], argIdx: { idx: number }): [st
   return null
 }
 
-function whereMatches(row: any, whereClause: string, args: any[]): boolean {
-  const parts = whereClause.split(/\s+AND\s+/i)
+function whereMatches(row: any, whereClause: string | null, args: any[]): boolean {
+  const parts = (whereClause ?? "").split(/\s+AND\s+/i)
   const state = { idx: 0 }
   return parts.every((cond: string) => {
     const result = parseCondition(cond, args, state)

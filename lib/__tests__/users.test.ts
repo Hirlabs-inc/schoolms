@@ -143,7 +143,7 @@ describe("createUser - Authorization", () => {
     await expect(createUser({
       email: "x@t.com", password: "p", role: "STUDENT",
       firstName: "X", lastName: "Y",
-    })).rejects.toThrow("Only admins can create users")
+    })).rejects.toThrow("Forbidden: insufficient role")
   })
 
   it("rejects when student is logged in", async () => {
@@ -152,7 +152,7 @@ describe("createUser - Authorization", () => {
     await expect(createUser({
       email: "x@t.com", password: "p", role: "STUDENT",
       firstName: "X", lastName: "Y",
-    })).rejects.toThrow("Only admins can create users")
+    })).rejects.toThrow("Forbidden: insufficient role")
   })
 
   it("rejects when teacher is logged in", async () => {
@@ -161,7 +161,7 @@ describe("createUser - Authorization", () => {
     await expect(createUser({
       email: "x@t.com", password: "p", role: "STUDENT",
       firstName: "X", lastName: "Y",
-    })).rejects.toThrow("Only admins can create users")
+    })).rejects.toThrow("Forbidden: insufficient role")
   })
 })
 
@@ -186,7 +186,7 @@ describe("User update and delete", () => {
 
   it("can update user profile fields via updateItem", async () => {
     tables.profiles.push({ id: "u1", email: "u@t.com", role: "STUDENT", firstName: "Old", lastName: "Name" })
-    const updated = await updateItem("users", "u1", { firstName: "New" } as any)
+    const updated: any = await updateItem("users", "u1", { firstName: "New" } as any)
     expect(updated.firstName).toBe("New")
   })
 

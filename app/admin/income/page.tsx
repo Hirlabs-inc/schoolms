@@ -47,7 +47,7 @@ export default function IncomePage() {
       const missingPayments = payments.filter(p => !data.find(i => i.receiptNumber === p.receiptNumber))
       if (missingPayments.length > 0) {
         await Promise.all(missingPayments.map(p =>
-          addItem<Income>("income", {
+          addItem("income", {
             category: "FEES",
             amount: Number(p.amount),
             description: `Fee payment - Receipt ${p.receiptNumber}`,

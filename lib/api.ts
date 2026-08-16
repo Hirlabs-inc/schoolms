@@ -454,14 +454,35 @@ export async function computeCommissionForEnrollment(studentId: string, courseId
   if (!course.teacherId || !course.commissionRate) {
     throw new Error("Commission configuration unavailable for course")
   }
+
+  // Idempotency: skip if a commission already exists for this student + course
+  const existingRs = await turso.execute({
+    sql: "select id from teacher_commissions where studentId = ? and courseId = ?",
+    args: [studentId, courseId],
+  })
+  if (existingRs.rows.length > 0) {
+    return { success: true, commissionAmount: 0, alreadyExists: true }
+  }
+
   const rate = Number(course.commissionRate) || 0
   const fee = Number(course.fee) || 0
-  const commissionAmount = rate * fee
+  // Percentage portion of the course fee
+  const percentPortion = (rate / 100) * fee
+  // Per-student fixed amount from the teacher's commission contract
+  let perStudentFixed = 0
+  const contractRs = await turso.execute({
+    sql: "select commissionPerStudent from teacher_contracts where teacherId = ? and compensationType = 'COMMISSION' and status = 'ACTIVE' order by createdAt desc limit 1",
+    args: [course.teacherId],
+  })
+  const contract = contractRs.rows[0] as any
+  if (contract?.commissionPerStudent) perStudentFixed = Number(contract.commissionPerStudent) || 0
+
+  const commissionAmount = percentPortion + perStudentFixed
   if (commissionAmount <= 0) return { success: true, commissionAmount: 0 }
 
   await turso.execute({
-    sql: "insert into teacher_commissions (id, teacherId, studentId, courseId, commissionRate, commissionAmount, paidAmount, status) values (?, ?, ?, ?, ?, ?, 0, 'EARNED')",
-    args: [crypto.randomUUID(), course.teacherId, studentId, courseId, rate, commissionAmount],
+    sql: "insert into teacher_commissions (id, teacherId, studentId, courseId, commissionRate, commissionAmount, paidAmount, status, createdAt) values (?, ?, ?, ?, ?, ?, 0, 'EARNED', ?)",
+    args: [crypto.randomUUID(), course.teacherId, studentId, courseId, rate, commissionAmount, new Date().toISOString()],
   })
   return { success: true, commissionAmount }
 }
