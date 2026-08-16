@@ -1,0 +1,56 @@
+You are HARDENING the `school-management-system` Next.js app (App Router) located at:
+C:\Users\khali\Downloads\school-management-system
+
+This is a security fix. The app currently connects to its libSQL/Turso database DIRECTLY FROM THE BROWSER using `NEXT_PUBLIC_` environment variables, which are shipped to every client. This exposes the database token and JWT secret to anyone. You must introduce a server backend so secrets never reach the browser.
+
+KEY FILES (read them first):
+- lib/turso.ts (client-side DB client using NEXT_PUBLIC_TURSO_URL/TOKEN — MUST become server-only)
+- lib/auth.ts (JWT create/verify using NEXT_PUBLIC_JWT_SECRET — MUST become server-only for signing)
+- lib/api.ts (all data access; calls turso.execute; imported by client components)
+- app/login/page.tsx (login form calling login() from lib/api)
+- .env.local (has NEXT_PUBLIC_TURSO_URL, NEXT_PUBLIC_TURSO_TOKEN, NEXT_PUBLIC_JWT_SECRET)
+
+DESIGN — Backend-for-Frontend (BFF) pattern:
+The browser must NEVER hold the DB token or JWT secret. Introduce Next.js Route Handlers (server-only) that hold the secrets and execute DB queries. The client calls those handlers via fetch.
+
+STEPS (do all, keep exported function signatures in lib/api.ts stable so UI components don't break):
+
+1. SECRETS (server-only):
+   - Rewrite `.env.local` programmatically (use a node/python script that reads the file and rewrites keys — do NOT print secret values to output). Change:
+     `NEXT_PUBLIC_TURSO_URL`  -> `TURSO_URL`
+     `NEXT_PUBLIC_TURSO_TOKEN` -> `TURSO_TOKEN`
+     `NEXT_PUBLIC_JWT_SECRET`  -> `JWT_SECRET`
+     (Removing the NEXT_PUBLIC_ prefix makes them server-only in Next.js — not inlined into the browser bundle.)
+   - Create a `.env.example` if missing, documenting TURSO_URL, TURSO_TOKEN, JWT_SECRET (server-only, no NEXT_PUBLIC_).
+
+2. SERVER DB CLIENT:
+   - Rewrite `lib/turso.ts` to read `process.env.TURSO_URL` and `process.env.TURSO_TOKEN` (NO NEXT_PUBLIC prefix). Add `import "server-only"` at the top so it can never be bundled into client code. This file is now imported ONLY by server Route Handlers.
+
+3. SERVER AUTH:
+   - In `lib/auth.ts`: keep `hashPassword`/`verifyPassword` (bcrypt) and `verifyToken` (server-side verification). Change `createToken` to read `process.env.JWT_SECRET` (server-only). Add `import "server-only"` to lib/auth.ts (it's only used server-side now). Keep a SEPARATE client-safe decode helper if needed (e.g. `decodeTokenUnsafe` using `jose` `decodeJwt` WITHOUT verification) for UI role-routing only — clearly named as unverified.
+
+4. SERVER ROUTE HANDLERS (create under app/api/):
+   a. `app/api/auth/login/route.ts` (POST): body {email, password}. Server-side: query profiles via server turso, bcrypt verify, createToken with server JWT_SECRET, return { user, token }. This replaces client-side token creation.
+   b. `app/api/auth/me/route.ts` (GET): read Authorization Bearer token, verifyToken (server), return the user (or 401).
+   c. `app/api/auth/reset/route.ts` (POST): body {email}. Server-side: look up profile; if exists, generate a secure random reset token, store it (add a `resetToken` + `resetTokenExpiry` column usage — you may issue an UPDATE to profiles setting resetToken/resetTokenExpiry; keep it simple: return success regardless to avoid user enumeration, and log the token server-side or return it for dev). Do NOT leave it a no-op.
+   d. `app/api/db/route.ts` (POST): the secure data proxy. Body: { sql, args } OR a structured op. It MUST: read Authorization Bearer, verifyToken (reject 401 if invalid), then execute the query on the SERVER turso client, return rows. This is what replaces direct browser DB access.
+
+5. CLIENT REFACTOR (lib/api.ts + a new client proxy):
+   - Create `lib/turso-client.ts` (client-safe, NO server-only import): export a `turso` object with an `execute({sql, args})` method that does `fetch('/api/db', {method:'POST', headers:{Authorization:'Bearer '+getStoredToken(), 'Content-Type':'application/json'}, body: JSON.stringify({sql, args})})` and returns `{ rows }` in the same shape lib/api.ts expects.
+   - In `lib/api.ts`: change the import from `./turso` to `./turso-client`. Everything else (getItems, addItem, updateItem, deleteItem, login, etc.) keeps working because they call `turso.execute`.
+   - Change `login()` in lib/api.ts to POST `/api/auth/login` (fetch) instead of calling turso directly + createToken client-side. It should return the user object and store the returned token via setStoredToken. (The server now creates the token.)
+   - Change `getCurrentUser()` to call `/api/auth/me` (fetch with bearer) instead of verifying client-side.
+   - Keep `verifyToken` usage out of the client path; for any client-side role check, use the decoded payload from the stored token via a safe decode (no signature verification needed for UI routing since the server enforces on /api/db).
+
+6. SQL INJECTION FIX (lib/api.ts):
+   - `getIncomeSummary` builds SQL with template-literal interpolation of startDate/endDate. Replace with parameterized args: `turso.execute({ sql: "select category, sum(amount) as total from income where incomeDate >= ? and incomeDate <= ? group by category", args: [startDate, endDate] })`.
+
+7. VERIFY client components still import only from `@/lib/api` (not turso directly). Grep for direct `turso` imports outside lib/api.ts and lib/turso-client.ts; fix any.
+
+VERIFICATION (must do):
+- `npx tsc --noEmit` in the project root — must pass.
+- `next build` is ideal but may need env; at minimum ensure tsc passes and no file imports "server-only" on the client path.
+- Fix all TypeScript errors your changes cause. Do NOT modify the database, do NOT run migrations, do NOT delete data.
+- Ensure NO file under app/ (client components) imports lib/turso.ts or lib/auth.ts directly (only the route handlers may).
+
+OUTPUT: Print a short summary of files changed + verify results (tsc). Then STOP. Do not ask questions.

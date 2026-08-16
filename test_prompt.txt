@@ -1,0 +1,195 @@
+You are a senior QA engineer. Your task is to do a FULL comprehensive testing of this school management system.
+
+## Project Overview
+- **Name**: Trainify School Management System
+- **Tech Stack**: Next.js 16 (App Router), TypeScript, Tailwind v4, Radix UI, Supabase, React Hook Form + Zod, Vitest + jsdom
+- **Core Modules**: Auth (login/logout/password reset), User Management (Admin creates students/teachers), Classes (Grade 1-12), Courses (per class), Exams & Results, Attendance (with SMS notifications), Student Promotion, Fees/Payments, Payroll, Income/Expenses, Enrollment Progress
+- **Roles**: ADMIN (full access), TEACHER (manages courses/exams/attendance for assigned classes), STUDENT (read-only access to own records)
+- **Database**: Supabase PostgreSQL with RLS policies
+
+## What already exists
+- 1 test file: `lib/__tests__/api.test.ts` (~42 tests) covering auth, CRUD, createUser, payroll, income, enrollment, edge cases, security
+- Vitest setup with in-memory mock DB in `vitest.setup.ts`
+- Run existing tests with: `npx vitest run`
+
+## Your Job
+
+### Phase 1: Understand the codebase
+1. Read ALL source files in `lib/`, `app/api/`, `app/admin/`, `app/teacher/`, `app/student/`, `contexts/`, `components/auth-guard.tsx`
+2. Understand the full data flow for each module
+3. Run existing tests: `npx vitest run` and note any failures
+
+### Phase 2: Write comprehensive tests
+
+Write tests for EVERYTHING not yet covered. Create test files in `lib/__tests__/`. Use the EXISTING mock infrastructure from `vitest.setup.ts` (the `execute` mock, `tables` in-memory store, `resetDb()`, etc.). Import from `../api` or `../api-sqlite` as the source does.
+
+#### A. Auth (`lib/__tests__/auth.test.ts`)
+- Token validation edge cases (expired tokens, malformed tokens)
+- Password update edge cases (empty password, same password)
+- Reset password edge cases (multiple resets, race conditions)
+- Session persistence across page reloads
+- Role verification in token payload
+
+#### B. User Management (`lib/__tests__/users.test.ts`)  
+- createUser edge cases: duplicate email, missing required fields, invalid role
+- createUser with all role types (ADMIN, TEACHER, STUDENT)
+- Student creation: with/without courseId, with parentPhone
+- Teacher creation: with/without staffId, department, specialization
+- Admin creation
+- generateStudentNumber: multiple calls produce unique numbers
+- User update: change role, update profile fields
+- User deletion and cascade effects
+
+#### C. Courses & Classes (`lib/__tests__/courses.test.ts`)
+- CRUD operations for courses
+- Course-class relationship integrity
+- Course-teacher assignment/unassignment
+- Duplicate course code handling
+- Bulk course operations
+- Get courses by class
+- Get courses by teacher
+
+#### D. Students (`lib/__tests__/students.test.ts`)
+- Student enrollment with full profile
+- Student update (change class, update parentPhone)
+- Student deletion cascade (fees, payments, attendance, exam_results, enrollment_progress)
+- getItems("students") enrichment (firstName, lastName, courseName, className)
+- Student listing with filters (by class, by course)
+- Student academic year validation
+
+#### E. Teachers (`lib/__tests__/teachers.test.ts`)
+- Teacher CRUD with profile enrichment
+- Teacher-course assignment
+- Teacher payroll integration
+- Teacher attendance
+
+#### F. Exams (`lib/__tests__/exams.test.ts`)
+- Exam CRUD (create, read, update, delete)
+- Exam creation with term, date, totalMarks
+- Exam linked to courses
+- Multiple exams per course
+
+#### G. Exam Results (`lib/__tests__/exam-results.test.ts`)
+- Result entry for students
+- Grade calculation from marks
+- Pass/fail determination
+- Results enrichment (student name, course name, exam info)
+- Bulk result entry
+- Result updates
+- Student view (only own results)
+- Teacher view (only assigned course results)
+
+#### H. Attendance (`lib/__tests__/attendance.test.ts`)
+- Mark attendance (PRESENT, ABSENT, LATE, SICK) for students
+- Mark attendance for teachers
+- Date-based filtering
+- Attendance by class, by course
+- Attendance summary/reports
+- Excuse tracking
+- SMS trigger on ABSENT marking
+- Duplicate attendance prevention (same student, same date, same course)
+
+#### I. Fees (`lib/__tests__/fees.test.ts`)
+- Fee creation (auto on student enrollment with courseId)
+- Fee payment recording
+- Balance calculation
+- Fee status transitions (PENDING → PARTIAL → PAID)
+- Overpayment prevention
+- Fee listing with student name enrichment
+- Fee by student, by course
+
+#### J. Payments (`lib/__tests__/payments.test.ts`)
+- Payment recording with method (CASH, BANK, MOBILE)
+- Receipt number generation
+- Payment-history enrichment
+- Payment linked to fees
+
+#### K. Payroll (`lib/__tests__/payroll.test.ts`)
+- processPayroll with all pay types (SALARY, COMMISSION, BONUS)
+- Payroll summary by month/year
+- Payroll by teacher
+- Expense auto-creation on payroll
+- Duplicate payroll prevention
+- Payroll date validation
+
+#### L. Income & Expenses (`lib/__tests__/finance.test.ts`)
+- Income CRUD with categories
+- Expense CRUD with categories
+- Income summary grouping by category
+- Expense summary grouping by category
+- Date filtering (month, year)
+- Enrichment with creator name
+
+#### M. SMS Integration (`lib/__tests__/sms.test.ts`)
+- sendSMS function behavior
+- SMS formatting for attendance alerts
+- SMS formatting for fee reminders
+- API key validation
+- Error handling for failed SMS
+- Rate limiting behavior
+
+#### N. Student Promotion (`lib/__tests__/promotion.test.ts`)
+- Promote student to next grade
+- Validation: all required courses passed
+- Failed course handling (block promotion)
+- Bulk promotion for class
+- Promotion edge cases (Grade 12 → graduation, no valid next class)
+
+#### O. Enrollment Progress (`lib/__tests__/enrollment.test.ts`)
+- Progress tracking (percentage updates)
+- Status transitions (NOT_STARTED → IN_PROGRESS → COMPLETED)
+- Progress enrichment with student/course names
+- Stats aggregation
+
+#### P. Authorization & RBAC (`lib/__tests__/authorization.test.ts`)
+- Admin: can access everything
+- Teacher: can access own courses, own students, own exams
+- Teacher: CANNOT create users, manage other teachers
+- Student: can ONLY view own records
+- Student: CANNOT modify anything
+- Unauthenticated: blocked from everything
+- Role escalation prevention
+- Token tampering detection
+
+#### Q. API Routes (`lib/__tests__/api-routes.test.ts`)
+If the project has API route handlers, test each endpoint:
+- POST /api/auth/login
+- GET /api/auth/me
+- POST /api/auth/reset
+- POST /api/db (generic DB operations)
+- Request validation
+- Error response format
+- CORS headers
+
+#### R. UI Components (if feasible in jsdom)
+- auth-guard redirects for each role
+- Form validation (React Hook Form + Zod)
+- Dashboard layout rendering
+
+#### S. Edge Cases & Stress (`lib/__tests__/edge-cases.test.ts`)
+- SQL injection attempts in search fields
+- XSS in name/description fields
+- Very long strings
+- Special characters (Unicode, emoji in names)
+- Negative numbers in financial fields
+- Zero values
+- Null/undefined handling
+- Concurrent operations (rapid inserts/deletes)
+- Empty result sets
+- Large datasets (100+ items)
+
+### Phase 3: Fix any bugs found
+If tests reveal bugs in the source code (`lib/api.ts`, `lib/api-sqlite.ts`, `lib/auth.ts`, etc.), FIX them. Do NOT break existing tests. Make minimal, targeted fixes.
+
+### Phase 4: Run everything
+Run ALL tests together: `npx vitest run`
+Ensure 100% pass rate. If any test fails, fix the test OR fix the source code, whichever is the real bug.
+
+## Critical Rules
+1. Use the EXISTING mock infrastructure — do NOT create new mock frameworks
+2. Import from the same paths the existing tests use (relative imports from `../`)
+3. Run `npx vitest run` after each test file you create to catch failures early
+4. Fix bugs in source code if found — do NOT write tests that pass around bugs
+5. Do NOT modify `vitest.setup.ts` unless absolutely necessary (and if you do, make sure existing tests still pass)
+6. Do NOT introduce new dependencies
+7. All tests must pass before you finish

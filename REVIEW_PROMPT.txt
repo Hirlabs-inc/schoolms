@@ -1,0 +1,43 @@
+You are doing a COMPREHENSIVE CODE REVIEW of the `school-management-system` codebase located at:
+C:\Users\khali\Downloads\school-management-system
+
+This is a Next.js app (App Router) — likely the "Trainify Technology Training Institute" / schoolms system. It uses `@libsql/client` (libSQL/Turso) or Supabase for data, with SQL migration files in the repo root (e.g. `migrate_trainify.sql`, `fix_rls_policies.sql`, `add_missing_courses.sql`). It was observed live at schoolms12.netlify.app where the LOGIN FORM WAS BROKEN (form used method=GET, inputs had no `name` attributes, action pointed to /login/ with no backend, no /api/ or fetch calls in the bundle — only a static login page existed, /dashboard was 404).
+
+Your job: READ THE CODE and explain the ACTUAL LOGIC and ARCHITECTURE, and find real problems. Do NOT modify files — review only.
+
+FOCUS AREAS (read real files, cite file:line):
+
+1. AUTHENTICATION & LOGIN LOGIC
+   - Find the login page/form (app/login or similar) and the auth logic (lib/auth*, app/actions*, context.txt, OAUTH_IMPLEMENTATION_GUIDE.md).
+   - WHY was the live login broken? Is the login a native HTML form (GET, no names) or does it call a server action / API route / Supabase auth? Explain the disconnect between the code and the deployed behavior.
+   - Is there real session management (cookies, JWT, Supabase auth)? Where?
+
+2. DATA LAYER
+   - How does it connect to the database? (lib/db*, @libsql/client, supabase). Is DATABASE_URL / supabase URL configured? Read .env.local (it exists) — note what's set (do NOT print secrets, just say what keys exist).
+   - Read the SQL files (migrate_trainify.sql, fix_rls_policies.sql) — what tables exist? Is Row Level Security configured and correct?
+   - Are queries built safely (parameterized) or vulnerable to SQL injection?
+
+3. ROUTING & FEATURE COMPLETENESS
+   - List the actual routes/pages under app/. What features exist (students, teachers, courses, exams, attendance, fees, dashboard, admin)? 
+   - The live site only had /login. Explain: are the other pages present in code but not deployed, or genuinely missing?
+   - Read context.txt and the many *FIX*.md / *DIAGNOSTICS*.md docs — summarize the chronic problems the developers were fighting (RLS, hydration, teacher-course eligibility, exam results, missing names).
+
+4. SECURITY
+   - SQL injection, auth bypass, exposed secrets in client code, missing access control on routes, RLS gaps.
+   - The libSQL/Supabase anon key exposure risk.
+
+5. CODE QUALITY & DEPLOYMENT
+   - Is it deployable? Why might only /login have been deployed to Netlify? Check next.config.mjs, netlify.toml, package.json scripts.
+   - TypeScript/build issues, dead code, hardcoded values.
+
+OUTPUT FORMAT (final message, then STOP — do not ask questions):
+- Executive Summary (is this app functional? what's the core blocker?)
+- Architecture Overview (data layer, auth, framework)
+- Authentication Findings (root cause of broken login)
+- Feature Inventory (what exists in code vs deployed)
+- Security Issues (prioritized, Critical/High/Medium/Low)
+- Code Quality & Deployment Issues
+- Top 10 Fix Priorities
+- Closing verdict
+
+Be specific and cite files. This is a read-only review.
