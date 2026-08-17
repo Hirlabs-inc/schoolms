@@ -69,6 +69,7 @@ const TABLE_MAP: Record<string, string> = {
   teacherContracts: "teacher_contracts",
   payrollRecords: "payroll_records",
   enrollmentProgress: "enrollment_progress",
+  courseTeachers: "course_teachers",
   institutionSettings: "institution_settings",
 }
 
@@ -368,6 +369,58 @@ export async function createUser(userData: any) {
   return { success: true, userId }
 }
 
+// Register a student. A login `profiles` row is created ONLY when
+// createLoginAccount is true; otherwise the student is just a `students` record
+// (no forced user account). Commission is computed on enrollment regardless.
+export async function registerStudent(userData: any) {
+  await requireRole(["ADMIN"])
+
+  const createLoginAccount = userData.createLoginAccount === true
+  const userId = crypto.randomUUID()
+
+  if (createLoginAccount) {
+    const passwordHash = await hashPassword(userData.password)
+    await turso.execute({
+      sql: "insert into profiles (id, email, password, role, firstName, lastName) values (?, ?, ?, ?, ?, ?)",
+      args: [userId, userData.email, passwordHash, "STUDENT", userData.firstName, userData.lastName],
+    })
+  }
+
+  await turso.execute({
+    sql: "insert into students (id, profileId, email, studentNumber, enrollmentYear, classId, academicYear, parentPhone, courseId, phone, gender, admissionDate, expectedCompletionDate, status) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    args: [
+      userId,
+      createLoginAccount ? userId : null,
+      userData.email || null,
+      userData.studentNumber || generateStudentNumber(),
+      new Date().getFullYear(),
+      userData.classId || null,
+      userData.academicYear || 1,
+      userData.parentPhone || null,
+      userData.courseId || null,
+      userData.phone || null,
+      userData.gender || null,
+      userData.admissionDate || null,
+      userData.expectedCompletionDate || null,
+      userData.status || "ACTIVE",
+    ],
+  })
+
+  // Auto-assign fee based on the student's primary course.
+  if (userData.courseId) {
+    const courseRs = await turso.execute({ sql: "select fee from courses where id = ?", args: [userData.courseId] })
+    if (courseRs.rows.length > 0) {
+      const fee = Number(courseRs.rows[0].fee) || 0
+      await turso.execute({
+        sql: "insert into fees (id, studentId, courseId, totalFee, balance, status) values (?, ?, ?, ?, ?, ?)",
+        args: [crypto.randomUUID(), userId, userData.courseId, fee, fee, "PENDING"],
+      })
+    }
+  }
+
+  return { success: true, userId }
+}
+
 export function generateStudentNumber(): string {
   const year = new Date().getFullYear().toString().slice(-2)
   const random = Math.floor(Math.random() * 10000).toString().padStart(4, "0")
@@ -447,13 +500,68 @@ export async function getStudentFeeSummary(studentId: string) {
   return { totalFee, amountPaid, balance, nextDueDate, status, payments }
 }
 
+export async function getCourseTeachers(courseId: string): Promise<string[]> {
+  const rs = await turso.execute({
+    sql: "select teacherId from course_teachers where courseId = ?",
+    args: [courseId],
+  })
+  const ids = (rs.rows as any[]).map((r) => r.teacherId)
+  // Fallback to the legacy single teacherId if no join rows exist yet.
+  if (ids.length === 0) {
+    const c = await turso.execute({ sql: "select teacherId from courses where id = ?", args: [courseId] })
+    if (c.rows[0]?.teacherId) ids.push(c.rows[0].teacherId)
+  }
+  return ids
+}
+
+export async function assignTeacherToCourse(courseId: string, teacherId: string): Promise<void> {
+  requireAuth()
+  await turso.execute({
+    sql: "insert or ignore into course_teachers (courseId, teacherId, createdAt) values (?, ?, ?)",
+    args: [courseId, teacherId, new Date().toISOString()],
+  })
+}
+
+export async function removeTeacherFromCourse(courseId: string, teacherId: string): Promise<void> {
+  requireAuth()
+  await turso.execute({
+    sql: "delete from course_teachers where courseId = ? and teacherId = ?",
+    args: [courseId, teacherId],
+  })
+}
+
+async function commissionForTeacher(
+  teacherId: string,
+  studentId: string,
+  courseId: string,
+  course: any
+): Promise<number> {
+  const rate = Number(course.commissionRate) || 0
+  const fee = Number(course.fee) || 0
+  const percentPortion = (rate / 100) * fee
+  // Per-student fixed amount from the teacher's commission contract
+  let perStudentFixed = 0
+  const contractRs = await turso.execute({
+    sql: "select commissionPerStudent from teacher_contracts where teacherId = ? and compensationType = 'COMMISSION' and status = 'ACTIVE' order by createdAt desc limit 1",
+    args: [teacherId],
+  })
+  const contract = contractRs.rows[0] as any
+  if (contract?.commissionPerStudent) perStudentFixed = Number(contract.commissionPerStudent) || 0
+
+  const commissionAmount = percentPortion + perStudentFixed
+  if (commissionAmount <= 0) return 0
+
+  await turso.execute({
+    sql: "insert into teacher_commissions (id, teacherId, studentId, courseId, commissionRate, commissionAmount, paidAmount, status, createdAt) values (?, ?, ?, ?, ?, ?, 0, 'EARNED', ?)",
+    args: [crypto.randomUUID(), teacherId, studentId, courseId, rate, commissionAmount, new Date().toISOString()],
+  })
+  return commissionAmount
+}
+
 export async function computeCommissionForEnrollment(studentId: string, courseId: string) {
   const courseRs = await turso.execute({ sql: "select * from courses where id = ?", args: [courseId] })
   const course = courseRs.rows[0] as any
   if (!course) throw new Error("Commission configuration unavailable for course")
-  if (!course.teacherId || !course.commissionRate) {
-    throw new Error("Commission configuration unavailable for course")
-  }
 
   // Idempotency: skip if a commission already exists for this student + course
   const existingRs = await turso.execute({
@@ -464,27 +572,13 @@ export async function computeCommissionForEnrollment(studentId: string, courseId
     return { success: true, commissionAmount: 0, alreadyExists: true }
   }
 
-  const rate = Number(course.commissionRate) || 0
-  const fee = Number(course.fee) || 0
-  // Percentage portion of the course fee
-  const percentPortion = (rate / 100) * fee
-  // Per-student fixed amount from the teacher's commission contract
-  let perStudentFixed = 0
-  const contractRs = await turso.execute({
-    sql: "select commissionPerStudent from teacher_contracts where teacherId = ? and compensationType = 'COMMISSION' and status = 'ACTIVE' order by createdAt desc limit 1",
-    args: [course.teacherId],
-  })
-  const contract = contractRs.rows[0] as any
-  if (contract?.commissionPerStudent) perStudentFixed = Number(contract.commissionPerStudent) || 0
-
-  const commissionAmount = percentPortion + perStudentFixed
-  if (commissionAmount <= 0) return { success: true, commissionAmount: 0 }
-
-  await turso.execute({
-    sql: "insert into teacher_commissions (id, teacherId, studentId, courseId, commissionRate, commissionAmount, paidAmount, status, createdAt) values (?, ?, ?, ?, ?, ?, 0, 'EARNED', ?)",
-    args: [crypto.randomUUID(), course.teacherId, studentId, courseId, rate, commissionAmount, new Date().toISOString()],
-  })
-  return { success: true, commissionAmount }
+  // Pay every teacher assigned to the course (per-student commission).
+  const teacherIds = await getCourseTeachers(courseId)
+  let total = 0
+  for (const tid of teacherIds) {
+    total += await commissionForTeacher(tid, studentId, courseId, course)
+  }
+  return { success: true, commissionAmount: total }
 }
 
 export async function getTeacherCommissionSummaries(teacherId?: string): Promise<TeacherCommissionSummary[]> {
@@ -500,8 +594,19 @@ export async function getTeacherCommissionSummaries(teacherId?: string): Promise
     const p = await turso.execute({ sql: "select firstName, lastName from profiles where id = ?", args: [tid] })
     const teacherName = p.rows[0] ? `${p.rows[0].firstName} ${p.rows[0].lastName}`.trim() : "Unknown"
 
-    const courseRs = await turso.execute({ sql: "select id from courses where teacherId = ?", args: [tid] })
-    const courseIds = (courseRs.rows as any[]).map(r => r.id)
+    // Courses where this teacher is assigned (via course_teachers, fallback legacy column)
+    const ctRs = await turso.execute({
+      sql: "select distinct courseId from course_teachers where teacherId = ?",
+      args: [tid],
+    })
+    const courseIds = (ctRs.rows as any[]).map((r) => r.courseId)
+    const legacyRs = await turso.execute({
+      sql: "select id from courses where teacherId = ?",
+      args: [tid],
+    })
+    for (const r of legacyRs.rows as any[]) {
+      if (!courseIds.includes(r.id)) courseIds.push(r.id)
+    }
     let totalStudentsAssigned = 0
     if (courseIds.length) {
       const placeholders = courseIds.map(() => "?").join(", ")

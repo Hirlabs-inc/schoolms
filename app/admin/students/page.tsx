@@ -19,7 +19,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
-import { getItems, addItem, updateItem, deleteItem, createUser, deleteStudent } from "@/lib/api"
+import { getItems, addItem, updateItem, deleteItem, registerStudent, computeCommissionForEnrollment, deleteStudent } from "@/lib/api"
 import type { Student, Course, Fee, EnrollmentProgress } from "@/lib/types"
 import { Users, BookOpen, DollarSign, CreditCard, Plus, Trash2, Pencil, Search, TrendingUp, Wallet, BarChart3, Loader2, Eye } from "lucide-react"
 import { useEffect, useState } from "react"
@@ -129,34 +129,20 @@ export default function StudentsPage() {
       let studentId = editingStudent?.id
 
       if (editingStudent) {
-        await updateItem("users", editingStudent.id, {
-          firstName: formData.firstName,
-          lastName: formData.lastName,
-          email: formData.email,
-        })
-        await updateItem("students", editingStudent.id, studentData)
-        // Delete old enrollment records and recreate
-        const oldEnrollments = enrollments.filter(e => e.studentId === editingStudent.id)
-        for (const enr of oldEnrollments) {
-          await deleteItem("enrollmentProgress", enr.id)
+        // Students are linked to `profiles`, not a `users` table.
+        if (formData.createLoginAccount) {
+          await updateItem("profiles", editingStudent.id, {
+            firstName: formData.firstName,
+            lastName: formData.lastName,
+            email: formData.email,
+          })
         }
-        alert("Student updated successfully!")
-      } else {
-        const result = await createUser({
-          email: formData.email,
-          password: formData.password,
-          role: "STUDENT",
-          firstName: formData.firstName,
-          lastName: formData.lastName,
-          createLoginAccount: formData.createLoginAccount,
-          ...studentData,
-        }) as { success: boolean; userId: string }
-        studentId = result?.userId
-        alert("Student created successfully!")
-      }
-
-      // Create enrollment progress records for all selected courses
-      if (studentId) {
+        await updateItem("students", editingStudent.id, studentData)
+        // Recreate enrollment records for all selected courses.
+        const oldEnrollments = enrollments.filter((en) => en.studentId === editingStudent!.id)
+        for (const en of oldEnrollments) {
+          await deleteItem("enrollmentProgress", en.id)
+        }
         for (const courseId of selectedCourseIds) {
           await addItem("enrollmentProgress", {
             studentId,
@@ -166,7 +152,43 @@ export default function StudentsPage() {
             startDate: formData.admissionDate || null,
             notes: null,
           })
+          try {
+            await computeCommissionForEnrollment(studentId, courseId)
+          } catch (err) {
+            const m = (err as Error)?.message || ""
+            if (!m.includes("Commission configuration")) throw err
+          }
         }
+        alert("Student updated successfully!")
+      } else {
+        const result = await registerStudent({
+          email: formData.email,
+          password: formData.password,
+          firstName: formData.firstName,
+          lastName: formData.lastName,
+          createLoginAccount: formData.createLoginAccount,
+          ...studentData,
+        }) as { success: boolean; userId: string }
+        studentId = result?.userId
+
+        // Enroll in every selected course + compute per-teacher commission.
+        for (const courseId of selectedCourseIds) {
+          await addItem("enrollmentProgress", {
+            studentId,
+            courseId,
+            progressPercent: 0,
+            status: "ENROLLED",
+            startDate: formData.admissionDate || null,
+            notes: null,
+          })
+          try {
+            await computeCommissionForEnrollment(studentId, courseId)
+          } catch (err) {
+            const m = (err as Error)?.message || ""
+            if (!m.includes("Commission configuration")) throw err
+          }
+        }
+        alert("Student created successfully!")
       }
 
       setIsDialogOpen(false)
@@ -342,7 +364,7 @@ export default function StudentsPage() {
                       <div className="grid grid-cols-2 gap-4">
                         <div className="grid gap-2">
                           <Label htmlFor="admissionDate">Admission Date</Label>
-                          <Input id="admissionDate" type="date" value={formData.admissionDate} onChange={(e) => setFormData({ ...formData, admissionDate: e.target.value })} required />
+                          <Input id="admissionDate" type="date" value={formData.admissionDate} onChange={(e) => setFormData({ ...formData, admissionDate: e.target.value })} />
                         </div>
                         <div className="grid gap-2">
                           <Label htmlFor="expectedCompletionDate">Expected Completion</Label>

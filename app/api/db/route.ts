@@ -26,6 +26,8 @@ const ALLOWED_TABLES = new Set([
   "teacher_commissions",
   "teacher_contracts",
   "enrollment_progress",
+  "course_teachers",
+  "institution_settings",
   "exam_results",
   "attendance",
   "profiles",

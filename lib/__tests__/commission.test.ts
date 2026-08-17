@@ -102,4 +102,51 @@ describe("Teacher Commission generation on enrollment", () => {
     expect(t1).toBeDefined()
     expect(t1!.totalCommissionEarned).toBeGreaterThan(0)
   })
+
+  it("pays EVERY teacher assigned to a course (per-student commission for each)", async () => {
+    // Two teachers assigned to the same course via course_teachers
+    tables.teachers.push({ id: "t1", staffId: "TCH1", department: "Academics" })
+    tables.teachers.push({ id: "t2", staffId: "TCH2", department: "Academics" })
+    tables.profiles.push({ id: "t1", firstName: "Teach", lastName: "One" })
+    tables.profiles.push({ id: "t2", firstName: "Teach", lastName: "Two" })
+    tables.courses.push({
+      id: "c1", name: "Mathematics", code: "MTH", classId: "cl1",
+      fee: 100000, commissionRate: 10, // no single teacherId; assignment is via course_teachers
+    })
+    tables.teacher_contracts.push({
+      id: "ctr1", teacherId: "t1", compensationType: "COMMISSION",
+      commissionRate: 10, commissionPerStudent: 500, status: "ACTIVE",
+    })
+    tables.teacher_contracts.push({
+      id: "ctr2", teacherId: "t2", compensationType: "COMMISSION",
+      commissionRate: 10, commissionPerStudent: 500, status: "ACTIVE",
+    })
+    // Assign both teachers to the course
+    tables.course_teachers.push({ courseId: "c1", teacherId: "t1", createdAt: "2026-01-01" })
+    tables.course_teachers.push({ courseId: "c1", teacherId: "t2", createdAt: "2026-01-01" })
+
+    await createUser({
+      email: "stu@test.com", password: "p", role: "STUDENT",
+      firstName: "Stu", lastName: "Dent", courseId: "c1",
+    })
+
+    // One commission row per assigned teacher
+    expect(tables.teacher_commissions).toHaveLength(2)
+    const teachers = tables.teacher_commissions.map((c: any) => c.teacherId).sort()
+    expect(teachers).toEqual(["t1", "t2"])
+    // Each gets fee*rate/100 + perStudent = 100000*0.10 + 500 = 10500
+    for (const c of tables.teacher_commissions) {
+      expect(Number(c.commissionAmount)).toBeCloseTo(10500)
+      expect(c.status).toBe("EARNED")
+    }
+
+    const summaries = await getTeacherCommissionSummaries()
+    const s1 = summaries.find(s => s.teacherId === "t1")
+    const s2 = summaries.find(s => s.teacherId === "t2")
+    expect(s1!.totalCommissionEarned).toBeCloseTo(10500)
+    expect(s2!.totalCommissionEarned).toBeCloseTo(10500)
+    // Student counts toward both assigned teachers
+    expect(s1!.totalStudentsAssigned).toBe(1)
+    expect(s2!.totalStudentsAssigned).toBe(1)
+  })
 })
