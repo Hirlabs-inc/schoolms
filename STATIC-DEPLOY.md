@@ -1,57 +1,39 @@
-# Static deploy (Next.js static export + Netlify Functions)
+# Deploy (Docker + Traefik)
 
-Hybrid approach chosen for secure static hosting:
-- `next build` with `output: 'export'` emits a pure static **`out/`** folder (all pages).
-- The 4 API routes run as **Netlify Functions** under `netlify/functions/` and are
-  served at `/.netlify/functions/<name>`. `netlify.toml` redirects `/api/*` →
-  those functions, so the existing client calls (`/api/db`, `/api/auth/login`, …)
-  keep working unchanged. The Turso token + JWT secret stay **server-side**.
+schoolms is a standard Next.js app (App Router) deployed as a Docker container behind
+a Traefik reverse proxy (Coolify's `coolify-proxy` on the VPS) which issues Let's
+Encrypt certs via the Cloudflare DNS-01 challenge. No static export / Netlify.
 
-## Build (produces the uploadable folder)
+## Build the image
 ```
-npm run build      # -> out/  (static site)  + netlify/functions (serverless API)
+docker build -t schoolms:<tag> .
 ```
 
-## Deploy to Netlify
-**Option 1 — Git connect (recommended):** import the repo at app.netlify.com. The
-`netlify.toml` sets `command = "next build"`, `publish = "out"`, and the function
-directory. Set these env vars in Site settings → Environment variables:
-- `TURSO_URL`     — libSQL database URL
-- `TURSO_TOKEN`  — libSQL auth token (DB writes) — NEVER expose to the client
-- `JWT_SECRET`   — signs/verifies login JWTs
+## Run (behind Traefik)
+The container listens on `3000` (no host port — Traefik routes to it). Required env:
+- `TURSO_URL`, `TURSO_TOKEN` — libSQL database (DB writes stay server-side)
+- `JWT_SECRET` — signs/verifies login JWTs
+- `PORT=3000`, `HOST=0.0.0.0`
 
-**Option 2 — Drag-drop the `out/` folder** to Netlify Drop. The static UI uploads;
-the `/api/*` functions still run because Netlify serves `netlify/functions/` from
-the connected repo. (For a pure folder-drop without Git, the functions won't deploy
-— connect the repo or use the CLI for the API to work.)
+Traefik labels (example for `trainify.hirlabs.com`):
+```
+traefik.enable=true
+traefik.http.routers.https-0-<name>.entryPoints=https
+traefik.http.routers.https-0-<name>.rule=Host(`trainify.hirlabs.com`) && PathPrefix(`/`)
+traefik.http.routers.https-0-<name>.tls.certresolver=letsencrypt
+traefik.http.routers.https-0-<name>.tls=true
+traefik.http.services.https-0-<name>.loadbalancer.server.port=3000
+traefik.http.routers.http-0-<name>.entryPoints=http
+traefik.http.routers.http-0-<name>.middlewares=redirect-to-https
+traefik.http.routers.http-0-<name>.rule=Host(`trainify.hirlabs.com`) && PathPrefix(`/`)
+```
+The container must be on the `coolify` network so Traefik can reach it.
 
-**Option 3 — CLI:** `netlify deploy --prod` (builds via the config and publishes both
-static assets and functions).
+## DNS
+Add an A record for the subdomain (e.g. `trainify.hirlabs.com` -> VPS IP). Traefik's
+Cloudflare DNS-01 resolver auto-issues the cert.
 
-## How the API routes map
-| Client calls            | Netlify Function                      |
-|-------------------------|---------------------------------------|
-| `POST /api/db`          | `netlify/functions/db.ts`             |
-| `POST /api/auth/login`  | `netlify/functions/auth/login.ts`     |
-| `GET  /api/auth/me`     | `netlify/functions/auth/me.ts`        |
-| `POST /api/auth/reset`  | `netlify/functions/auth/reset.ts`     |
-
-The redirect `[[redirects]] from="/api/*" to="/.netlify/functions/:splat" status=200`
-forwards method, headers, and body, so auth/JWT flow is unchanged.
-
-## Notes
-- `app/api/*` was removed on purpose: `output: 'export'` cannot statically export
-  Next API routes, so they live as Netlify Functions instead.
-- `next.config.mjs` has `images.unoptimized: true` (required for static export) and
-  `output: 'export'`.
-- The SPA fallback (`/*` → `/index.html`, `force=false`) only triggers on missing
-  paths; existing static files and `/.netlify/functions/*` are served directly.
-- For local dev with the functions, use `netlify dev` (runs functions) rather than
-  `next dev` (which no longer has the API routes).
-
-## Environment variables (functions only — never in the client bundle)
-| Var           | Used by            | Notes                          |
-|---------------|--------------------|--------------------------------|
-| `TURSO_URL`   | lib/turso.ts       | libSQL database URL            |
-| `TURSO_TOKEN` | lib/turso.ts       | libSQL auth token (DB writes) |
-| `JWT_SECRET`  | lib/auth.ts        | signs/verifies login JWTs      |
+## Why not static export
+`output: 'export'` is intentionally NOT used: the app has server API routes
+(`app/api/db`, `app/api/auth/*`) that the client depends on for DB access and login.
+Those run in the container, keeping the DB token + JWT secret server-side.

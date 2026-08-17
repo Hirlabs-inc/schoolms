@@ -35,7 +35,7 @@ export default function UsersPage() {
     lastName: "",
     email: "",
     password: "",
-    role: "STUDENT" as UserRole,
+    role: "ADMIN" as UserRole,
     studentNumber: "",
     enrollmentYear: new Date().getFullYear(),
     classId: "",
@@ -233,7 +233,7 @@ export default function UsersPage() {
         lastName: "",
         email: "",
         password: "",
-        role: "STUDENT",
+        role: "ADMIN",
         studentNumber: "",
         enrollmentYear: new Date().getFullYear(),
         classId: "",
@@ -329,7 +329,7 @@ export default function UsersPage() {
                       lastName: "",
                       email: "",
                       password: "",
-                      role: "STUDENT",
+                      role: "ADMIN",
                       studentNumber: "",
                       enrollmentYear: new Date().getFullYear(),
                       classId: "",
@@ -374,7 +374,6 @@ export default function UsersPage() {
                             <SelectContent>
                               <SelectItem value="ADMIN">Admin</SelectItem>
                               <SelectItem value="TEACHER">Teacher</SelectItem>
-                              <SelectItem value="STUDENT">Student</SelectItem>
                               <SelectItem value="SECRETARY">Secretary</SelectItem>
                               <SelectItem value="MANAGER">Manager</SelectItem>
                             </SelectContent>
@@ -420,24 +419,8 @@ export default function UsersPage() {
                             onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                             required={!editingUser}
                             placeholder={editingUser ? "Leave blank to keep current password" : ""}
-                            disabled={!editingUser && formData.role === "STUDENT" && !formData.createLoginAccount}
                           />
                         </div>
-
-                        {!editingUser && formData.role === "STUDENT" && (
-                          <div className="grid gap-2">
-                            <div className="flex items-center gap-2 cursor-pointer">
-                              <input
-                                id="createLoginAccount"
-                                type="checkbox"
-                                className="h-4 w-4"
-                                checked={formData.createLoginAccount}
-                                onChange={(e) => setFormData({ ...formData, createLoginAccount: e.target.checked })}
-                              />
-                              <Label htmlFor="createLoginAccount" className="cursor-pointer">Create login account for this student</Label>
-                            </div>
-                          </div>
-                        )}
 
                         {formData.role === "STUDENT" && (
                           <>
