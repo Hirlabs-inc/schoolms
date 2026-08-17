@@ -1,51 +1,57 @@
-# Static deploy (prerendered pages + serverless API functions)
+# Static deploy (Next.js static export + Netlify Functions)
 
-The app is already structured for a static deploy: every page is prerendered as
-static content, and the 4 API routes (`/api/db`, `/api/auth/login`,
-`/api/auth/me`, `/api/auth/reset`) run as serverless functions. No `output:
-'export'` is used — that would delete the API routes. The browser reaches the
-database only through `/api/db`, so the Turso token and JWT secret stay server-side.
+Hybrid approach chosen for secure static hosting:
+- `next build` with `output: 'export'` emits a pure static **`out/`** folder (all pages).
+- The 4 API routes run as **Netlify Functions** under `netlify/functions/` and are
+  served at `/.netlify/functions/<name>`. `netlify.toml` redirects `/api/*` →
+  those functions, so the existing client calls (`/api/db`, `/api/auth/login`, …)
+  keep working unchanged. The Turso token + JWT secret stay **server-side**.
 
-## What the build produces
-- `next build` marks all 17 pages as `○ (Static)` and all 4 API routes as
-  `ƒ (Dynamic)`. Netlify/Vercel serve the pages from a CDN and the API routes as
-  functions automatically.
-
-## Option A — Netlify (zero-config with the plugin)
-1. `netlify.toml` is committed (uses `@netlify/plugin-nextjs`).
-2. Connect the repo at app.netlify.com → "Add new site" → import.
-3. Build command: `next build` (auto from netlify.toml). Publish: `.next` (plugin-managed).
-4. Set these **Function environment variables** (Site settings → Environment variables):
-   - `TURSO_URL`        — your Turso database URL
-   - `TURSO_TOKEN`     — your Turso auth token (DB writes) — NEVER expose to the client
-   - `JWT_SECRET`      — secret used to sign login JWTs
-5. Deploy. The UI is static; `/api/*` are functions.
-
-## Option B — Vercel
-1. `vercel.json` pins `framework: nextjs` (Vercel auto-detects Next.js regardless).
-2. Import the repo at vercel.com. Build: `next build`, Output: `.next`.
-3. Set the same Project Environment Variables: `TURSO_URL`, `TURSO_TOKEN`, `JWT_SECRET`.
-4. Deploy.
-
-## Option C — any static host (GitHub Pages / S3 / Cloudflare Pages static) — INSECRE
-This requires `output: 'export'` PLUS moving the data layer fully client-side
-(connecting to Turso directly from the browser with the token in the bundle).
-That exposes the DB token to anyone via DevTools, letting them run arbitrary SQL.
-Only acceptable for demo/non-sensitive data. Not configured here by default.
-
-## Environment variables (all server-side / functions only)
-| Var           | Used by            | Notes                                  |
-|---------------|--------------------|----------------------------------------|
-| `TURSO_URL`   | lib/turso.ts       | libSQL database URL                    |
-| `TURSO_TOKEN` | lib/turso.ts       | libSQL auth token (DB writes)          |
-| `JWT_SECRET`  | lib/auth.ts        | signs/verifies login JWTs              |
-
-`.env.local` is git-ignored and must NOT be committed. Provide these via the
-host's environment-variable UI, not in the repo.
-
-## Local static preview
+## Build (produces the uploadable folder)
 ```
-npm run build
-npx serve .next   # or `npx superstatic .next` — pages are static; API routes need a function runtime
+npm run build      # -> out/  (static site)  + netlify/functions (serverless API)
 ```
-For a fully local check of the API routes, run `npm run dev` instead.
+
+## Deploy to Netlify
+**Option 1 — Git connect (recommended):** import the repo at app.netlify.com. The
+`netlify.toml` sets `command = "next build"`, `publish = "out"`, and the function
+directory. Set these env vars in Site settings → Environment variables:
+- `TURSO_URL`     — libSQL database URL
+- `TURSO_TOKEN`  — libSQL auth token (DB writes) — NEVER expose to the client
+- `JWT_SECRET`   — signs/verifies login JWTs
+
+**Option 2 — Drag-drop the `out/` folder** to Netlify Drop. The static UI uploads;
+the `/api/*` functions still run because Netlify serves `netlify/functions/` from
+the connected repo. (For a pure folder-drop without Git, the functions won't deploy
+— connect the repo or use the CLI for the API to work.)
+
+**Option 3 — CLI:** `netlify deploy --prod` (builds via the config and publishes both
+static assets and functions).
+
+## How the API routes map
+| Client calls            | Netlify Function                      |
+|-------------------------|---------------------------------------|
+| `POST /api/db`          | `netlify/functions/db.ts`             |
+| `POST /api/auth/login`  | `netlify/functions/auth/login.ts`     |
+| `GET  /api/auth/me`     | `netlify/functions/auth/me.ts`        |
+| `POST /api/auth/reset`  | `netlify/functions/auth/reset.ts`     |
+
+The redirect `[[redirects]] from="/api/*" to="/.netlify/functions/:splat" status=200`
+forwards method, headers, and body, so auth/JWT flow is unchanged.
+
+## Notes
+- `app/api/*` was removed on purpose: `output: 'export'` cannot statically export
+  Next API routes, so they live as Netlify Functions instead.
+- `next.config.mjs` has `images.unoptimized: true` (required for static export) and
+  `output: 'export'`.
+- The SPA fallback (`/*` → `/index.html`, `force=false`) only triggers on missing
+  paths; existing static files and `/.netlify/functions/*` are served directly.
+- For local dev with the functions, use `netlify dev` (runs functions) rather than
+  `next dev` (which no longer has the API routes).
+
+## Environment variables (functions only — never in the client bundle)
+| Var           | Used by            | Notes                          |
+|---------------|--------------------|--------------------------------|
+| `TURSO_URL`   | lib/turso.ts       | libSQL database URL            |
+| `TURSO_TOKEN` | lib/turso.ts       | libSQL auth token (DB writes) |
+| `JWT_SECRET`  | lib/auth.ts        | signs/verifies login JWTs      |

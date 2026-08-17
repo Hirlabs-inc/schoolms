@@ -10,9 +10,11 @@ const nextConfig = {
     unoptimized: true,
   },
 
-  // (Optional) Base path for hosting
-  // trailingSlash removed: it caused 308 redirects on API POSTs (e.g. /api/auth/login)
-  // that dropped the request body in the browser, breaking login. This is a server app.
+  // Static export: emits a deployable `out/` folder (pages only).
+  // API routes are NOT exported by Next — they live as Netlify Functions under
+  // netlify/functions/ and are mapped from /api/* via netlify.toml redirects.
+  // This keeps the DB token + JWT secret server-side while the UI is static.
+  output: 'export',
 }
 
 export default nextConfig

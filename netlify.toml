@@ -1,28 +1,35 @@
-# Netlify deploy config for school-management-system
+# Netlify deploy config — HYBRID: static export + serverless functions.
 #
-# Strategy: prerendered pages are served as static CDN assets; the 4 API routes
-# (app/api/auth/*, app/api/db) are deployed as Netlify Functions. This keeps the
-# server-side DB token + JWT secret off the client (secure) while the UI is static.
+# `next build` with `output: 'export'` emits a static `out/` folder (all pages).
+# The 4 API routes live as Netlify Functions under netlify/functions/ and are
+# served at /.netlify/functions/<name>. The /api/* redirect below maps the
+# client's existing calls (/api/db, /api/auth/login, ...) to those functions.
 #
-# Do NOT use `output: 'export'` here — it would strip the API routes. The
-# @netlify/plugin-nextjs handles the static-pages + serverless-functions split
-# automatically from a normal `next build`.
+# This keeps the DB token + JWT secret server-side (secure) while the UI is a
+# pure static folder you can also drag-drop to Netlify.
 
 [build]
   command = "next build"
-  # The Next.js plugin manages the output; .next is the build directory.
-  publish = ".next"
+  publish = "out"
 
-[[plugins]]
-  package = "@netlify/plugin-nextjs"
-
-# Environment variables for the serverless functions (API routes).
-# Set these in the Netlify dashboard (Site settings -> Environment variables)
-# as well, or they are read from the build/deploy context:
-[build.environment]
-  NEXT_PUBLIC_APP_NAME = "SchoolMS"
-
-# Functions runtime config (Node 20 matches the local/dev runtime).
+# Netlify Functions (TypeScript, bundled by Netlify). Env vars TURSO_URL,
+# TURSO_TOKEN, JWT_SECRET are provided in the Netlify dashboard and injected
+# into these functions at runtime.
 [functions]
+  directory = "netlify/functions"
   node_bundler = "esbuild"
-  included_files = ["package.json"]
+
+# Map /api/* -> /.netlify/functions/:splat (200 proxy keeps method/headers/body).
+# e.g. /api/db -> /.netlify/functions/db ; /api/auth/login -> /.netlify/functions/auth/login
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/:splat"
+  status = 200
+  force = true
+
+# SPA fallback: serve index.html for unknown non-asset routes (client routing).
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+  force = false
