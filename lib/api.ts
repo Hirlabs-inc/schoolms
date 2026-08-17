@@ -641,6 +641,73 @@ export async function getTeacherCommissionSummaries(teacherId?: string): Promise
   return summaries
 }
 
+export interface TeacherCommissionCourseRow {
+  teacherId: string
+  teacherName: string
+  courseId: string
+  courseName: string
+  studentsInCourse: number
+  commissionEarned: number
+  amountPaid: number
+  remainingBalance: number
+}
+
+// Per-course commission breakdown per teacher (reflects multi-teacher assignment
+// via course_teachers). Used by the Payroll > Commission view.
+export async function getTeacherCommissionBreakdown(): Promise<TeacherCommissionCourseRow[]> {
+  requireAuth()
+  const teacherRs = await turso.execute({ sql: "select * from teachers" })
+  const rows: TeacherCommissionCourseRow[] = []
+
+  for (const teacher of teacherRs.rows as any[]) {
+    const tid = teacher.id
+    const p = await turso.execute({ sql: "select firstName, lastName from profiles where id = ?", args: [tid] })
+    const teacherName = p.rows[0] ? `${p.rows[0].firstName} ${p.rows[0].lastName}`.trim() : "Unknown"
+
+    // Courses where this teacher is assigned (course_teachers, fallback legacy column)
+    const ctRs = await turso.execute({ sql: "select distinct courseId from course_teachers where teacherId = ?", args: [tid] })
+    const courseIds = (ctRs.rows as any[]).map((r) => r.courseId)
+    const legacyRs = await turso.execute({ sql: "select id from courses where teacherId = ?", args: [tid] })
+    for (const r of legacyRs.rows as any[]) {
+      if (!courseIds.includes(r.id)) courseIds.push(r.id)
+    }
+
+    for (const courseId of courseIds) {
+      const c = await turso.execute({ sql: "select name from courses where id = ?", args: [courseId] })
+      const courseName = c.rows[0]?.name || "Unknown course"
+
+      const studentRs = await turso.execute({
+        sql: "select count(*) as cnt from students where courseId = ?",
+        args: [courseId],
+      })
+      const studentsInCourse = Number(studentRs.rows[0]?.cnt) || 0
+
+      const earnedRs = await turso.execute({
+        sql: "select sum(commissionAmount) as s from teacher_commissions where teacherId = ? and courseId = ?",
+        args: [tid, courseId],
+      })
+      const paidRs = await turso.execute({
+        sql: "select sum(paidAmount) as s from teacher_commissions where teacherId = ? and courseId = ?",
+        args: [tid, courseId],
+      })
+      const commissionEarned = Number(earnedRs.rows[0]?.s) || 0
+      const amountPaid = Number(paidRs.rows[0]?.s) || 0
+
+      rows.push({
+        teacherId: tid,
+        teacherName,
+        courseId,
+        courseName,
+        studentsInCourse,
+        commissionEarned,
+        amountPaid,
+        remainingBalance: Math.max(0, commissionEarned - amountPaid),
+      })
+    }
+  }
+  return rows
+}
+
 export async function recordCommissionPayment(teacherId: string, amount: number, payDate: string, notes?: string) {
   requireAuth()
   await turso.execute({

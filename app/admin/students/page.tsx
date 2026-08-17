@@ -41,14 +41,12 @@ export default function StudentsPage() {
     firstName: "",
     lastName: "",
     email: "",
-    password: "",
     phone: "",
     gender: "",
     courseId: "",
     admissionDate: "",
     expectedCompletionDate: "",
     status: "ACTIVE" as string,
-    createLoginAccount: true,
   })
 
   useEffect(() => {
@@ -88,14 +86,12 @@ export default function StudentsPage() {
       firstName: student.firstName || "",
       lastName: student.lastName || "",
       email: student.email || "",
-      password: "",
       phone: student.phone || student.parentPhone || "",
       gender: student.gender || "",
       courseId: enrolledCourseIds[0] || student.courseId || "",
       admissionDate: student.admissionDate || "",
       expectedCompletionDate: student.expectedCompletionDate || "",
       status: student.status || "ACTIVE",
-      createLoginAccount: true,
     })
     setIsDialogOpen(true)
   }
@@ -129,14 +125,12 @@ export default function StudentsPage() {
       let studentId = editingStudent?.id
 
       if (editingStudent) {
-        // Students are linked to `profiles`, not a `users` table.
-        if (formData.createLoginAccount) {
-          await updateItem("profiles", editingStudent.id, {
-            firstName: formData.firstName,
-            lastName: formData.lastName,
-            email: formData.email,
-          })
-        }
+        // Students are linked to `profiles` (only if they have a login); update name/email there.
+        await updateItem("profiles", editingStudent.id, {
+          firstName: formData.firstName,
+          lastName: formData.lastName,
+          email: formData.email,
+        })
         await updateItem("students", editingStudent.id, studentData)
         // Recreate enrollment records for all selected courses.
         const oldEnrollments = enrollments.filter((en) => en.studentId === editingStudent!.id)
@@ -163,10 +157,8 @@ export default function StudentsPage() {
       } else {
         const result = await registerStudent({
           email: formData.email,
-          password: formData.password,
           firstName: formData.firstName,
           lastName: formData.lastName,
-          createLoginAccount: formData.createLoginAccount,
           ...studentData,
         }) as { success: boolean; userId: string }
         studentId = result?.userId
@@ -195,9 +187,9 @@ export default function StudentsPage() {
       setEditingStudent(null)
       setSelectedCourseIds([])
       setFormData({
-        firstName: "", lastName: "", email: "", password: "",
+        firstName: "", lastName: "", email: "",
         phone: "", gender: "", courseId: "", admissionDate: "",
-        expectedCompletionDate: "", status: "ACTIVE", createLoginAccount: true,
+        expectedCompletionDate: "", status: "ACTIVE",
       })
       loadData()
     } catch (error: any) {
@@ -255,9 +247,9 @@ export default function StudentsPage() {
                   setEditingStudent(null)
                   setSelectedCourseIds([])
                   setFormData({
-                    firstName: "", lastName: "", email: "", password: "",
+                    firstName: "", lastName: "", email: "",
                     phone: "", gender: "", courseId: "", admissionDate: "",
-                    expectedCompletionDate: "", status: "ACTIVE", createLoginAccount: true,
+                    expectedCompletionDate: "", status: "ACTIVE",
                   })
                 }
               }}>
@@ -290,28 +282,6 @@ export default function StudentsPage() {
                         <Label htmlFor="email">Email {editingStudent ? "" : "(Optional)"}</Label>
                         <Input id="email" type="email" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} required={!editingStudent} />
                       </div>
-                      {!editingStudent && (
-                        <>
-                          <div className="grid gap-2">
-                            <div className="flex items-center gap-2 cursor-pointer">
-                              <input
-                                id="createLoginAccount"
-                                type="checkbox"
-                                className="h-4 w-4"
-                                checked={formData.createLoginAccount}
-                                onChange={(e) => setFormData({ ...formData, createLoginAccount: e.target.checked })}
-                              />
-                              <Label htmlFor="createLoginAccount" className="cursor-pointer">Create login account for this student</Label>
-                            </div>
-                          </div>
-                          {formData.createLoginAccount && (
-                            <div className="grid gap-2">
-                              <Label htmlFor="password">Password</Label>
-                              <Input id="password" type="password" value={formData.password} onChange={(e) => setFormData({ ...formData, password: e.target.value })} required />
-                            </div>
-                          )}
-                        </>
-                      )}
                       <div className="grid gap-2">
                         <Label htmlFor="phone">Phone Number</Label>
                         <Input id="phone" type="tel" value={formData.phone} onChange={(e) => setFormData({ ...formData, phone: e.target.value })} placeholder="+254 XXX XXX XXX" required />

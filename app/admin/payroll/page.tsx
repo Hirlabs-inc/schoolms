@@ -11,8 +11,8 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
-import { getItems, addItem, updateItem, deleteItem, processPayroll, getTeacherCommissionSummaries, recordCommissionPayment } from "@/lib/api"
-import type { Teacher, TeacherContract, PayrollRecord, InstitutionSettings, EnrollmentProgress, Course, Student, TeacherCommissionSummary } from "@/lib/types"
+import { getItems, addItem, updateItem, deleteItem, processPayroll, getTeacherCommissionSummaries, getTeacherCommissionBreakdown, recordCommissionPayment } from "@/lib/api"
+import type { Teacher, TeacherContract, PayrollRecord, InstitutionSettings, EnrollmentProgress, Course, Student, TeacherCommissionSummary, TeacherCommissionCourseRow } from "@/lib/types"
 import { Plus, Trash2, Loader2, Pencil, Wallet, Calendar } from "lucide-react"
 import { useEffect, useState } from "react"
 
@@ -38,6 +38,8 @@ export default function PayrollPage() {
     payDate: new Date().toISOString().split("T")[0], payType: "SALARY" as string, notes: "",
   })
   const [commissionSummaries, setCommissionSummaries] = useState<TeacherCommissionSummary[]>([])
+  const [commissionBreakdown, setCommissionBreakdown] = useState<TeacherCommissionCourseRow[]>([])
+  const [expandedTeacher, setExpandedTeacher] = useState<string | null>(null)
   const [isCommissionDialogOpen, setIsCommissionDialogOpen] = useState(false)
   const [commissionForm, setCommissionForm] = useState({
     teacherId: "", teacherName: "", amount: "", payDate: new Date().toISOString().split("T")[0], notes: "",
@@ -47,8 +49,12 @@ export default function PayrollPage() {
 
   const loadCommissionSummaries = async () => {
     try {
-      const summaries = await getTeacherCommissionSummaries()
+      const [summaries, breakdown] = await Promise.all([
+        getTeacherCommissionSummaries(),
+        getTeacherCommissionBreakdown(),
+      ])
       setCommissionSummaries(summaries)
+      setCommissionBreakdown(breakdown)
     } catch (error) {
       console.error("Failed to load commission summaries", error)
     }
@@ -80,9 +86,10 @@ export default function PayrollPage() {
   }
 
   const countStudentsForTeacher = (teacherId: string): number => {
-    const teacherCourses = courses.filter(c => c.teacherId === teacherId)
-    const courseIds = new Set(teacherCourses.map(c => c.id))
-    return enrollments.filter(e => courseIds.has(e.courseId)).length
+    // Use the commission breakdown (reflects multi-teacher assignment via course_teachers).
+    return commissionBreakdown
+      .filter((r) => r.teacherId === teacherId)
+      .reduce((sum, r) => sum + r.studentsInCourse, 0)
   }
 
   const handleContractSubmit = async (e: React.FormEvent) => {
@@ -430,10 +437,26 @@ export default function PayrollPage() {
           </TabsContent>
 
           <TabsContent value="commission">
+            {/* Summary stat cards */}
+            <div className="grid gap-4 md:grid-cols-3 mb-6">
+              <Card>
+                <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Total Commission Earned</CardTitle></CardHeader>
+                <CardContent><div className="text-2xl font-bold">{currency} {commissionSummaries.reduce((s, r) => s + Number(r.totalCommissionEarned), 0).toLocaleString()}</div></CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Total Paid</CardTitle></CardHeader>
+                <CardContent><div className="text-2xl font-bold">{currency} {commissionSummaries.reduce((s, r) => s + Number(r.amountPaid), 0).toLocaleString()}</div></CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Outstanding Balance</CardTitle></CardHeader>
+                <CardContent><div className="text-2xl font-bold text-red-600">{currency} {commissionSummaries.reduce((s, r) => s + Number(r.remainingBalance), 0).toLocaleString()}</div></CardContent>
+              </Card>
+            </div>
+
             <Card>
               <CardHeader>
                 <div className="flex items-center justify-between">
-                  <div><CardTitle>Teacher Commission</CardTitle><CardDescription>Students assigned, commission earned, and remaining balance per teacher</CardDescription></div>
+                  <div><CardTitle>Teacher Commission</CardTitle><CardDescription>Commission earned per teacher and per assigned course (click a teacher to expand course breakdown)</CardDescription></div>
                   <Button variant="outline" onClick={loadCommissionSummaries}><Loader2 className="h-4 w-4 mr-2" />Refresh</Button>
                 </div>
               </CardHeader>
@@ -446,21 +469,48 @@ export default function PayrollPage() {
                     {commissionSummaries.length === 0 ? (
                       <TableRow><TableCell colSpan={6} className="text-center h-24 text-muted-foreground">No commission summaries</TableCell></TableRow>
                     ) : commissionSummaries.map((s) => (
-                      <TableRow key={s.teacherId}>
-                        <TableCell className="font-medium">{s.teacherName}</TableCell>
-                        <TableCell>{s.totalStudentsAssigned}</TableCell>
-                        <TableCell>{currency} {Number(s.totalCommissionEarned).toLocaleString()}</TableCell>
-                        <TableCell>{currency} {Number(s.amountPaid).toLocaleString()}</TableCell>
-                        <TableCell className={Number(s.remainingBalance) > 0 ? "font-medium text-red-600" : "font-medium"}>{currency} {Number(s.remainingBalance).toLocaleString()}</TableCell>
-                        <TableCell className="text-right">
-                          <Button variant="outline" size="sm" onClick={() => {
-                            setCommissionForm({ teacherId: s.teacherId, teacherName: s.teacherName, amount: s.remainingBalance?.toString() || "", payDate: new Date().toISOString().split("T")[0], notes: "" })
-                            setIsCommissionDialogOpen(true)
-                          }}>
-                            <Wallet className="h-4 w-4 mr-1" />Pay Commission
-                          </Button>
-                        </TableCell>
-                      </TableRow>
+                      <>
+                        <TableRow key={s.teacherId} className="cursor-pointer hover:bg-muted/50" onClick={() => setExpandedTeacher(expandedTeacher === s.teacherId ? null : s.teacherId)}>
+                          <TableCell className="font-medium">
+                            <span className="mr-2 text-muted-foreground">{expandedTeacher === s.teacherId ? "▾" : "▸"}</span>
+                            {s.teacherName}
+                          </TableCell>
+                          <TableCell>{s.totalStudentsAssigned}</TableCell>
+                          <TableCell>{currency} {Number(s.totalCommissionEarned).toLocaleString()}</TableCell>
+                          <TableCell>{currency} {Number(s.amountPaid).toLocaleString()}</TableCell>
+                          <TableCell className={Number(s.remainingBalance) > 0 ? "font-medium text-red-600" : "font-medium"}>{currency} {Number(s.remainingBalance).toLocaleString()}</TableCell>
+                          <TableCell className="text-right">
+                            <Button variant="outline" size="sm" onClick={(e) => { e.stopPropagation(); setCommissionForm({ teacherId: s.teacherId, teacherName: s.teacherName, amount: s.remainingBalance?.toString() || "", payDate: new Date().toISOString().split("T")[0], notes: "" }); setIsCommissionDialogOpen(true) }}>
+                              <Wallet className="h-4 w-4 mr-1" />Pay Commission
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                        {expandedTeacher === s.teacherId && (
+                          <TableRow key={`${s.teacherId}-detail`}>
+                            <TableCell colSpan={6} className="bg-muted/30 p-0">
+                              <div className="p-3">
+                                <p className="text-xs font-medium text-muted-foreground mb-2">Commission by course</p>
+                                <Table>
+                                  <TableHeader>
+                                    <TableRow><TableHead>Course</TableHead><TableHead>Students</TableHead><TableHead>Earned</TableHead><TableHead>Paid</TableHead><TableHead>Balance</TableHead></TableRow>
+                                  </TableHeader>
+                                  <TableBody>
+                                    {commissionBreakdown.filter((r) => r.teacherId === s.teacherId).map((r) => (
+                                      <TableRow key={r.courseId}>
+                                        <TableCell>{r.courseName}</TableCell>
+                                        <TableCell>{r.studentsInCourse}</TableCell>
+                                        <TableCell>{currency} {Number(r.commissionEarned).toLocaleString()}</TableCell>
+                                        <TableCell>{currency} {Number(r.amountPaid).toLocaleString()}</TableCell>
+                                        <TableCell className={Number(r.remainingBalance) > 0 ? "font-medium text-red-600" : ""}>{currency} {Number(r.remainingBalance).toLocaleString()}</TableCell>
+                                      </TableRow>
+                                    ))}
+                                  </TableBody>
+                                </Table>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </>
                     ))}
                   </TableBody>
                 </Table>
