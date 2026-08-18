@@ -195,6 +195,8 @@ export default function UsersPage() {
                 staffId: formData.staffId,
                 department: formData.department,
                 specialization: formData.specialization,
+                firstName: formData.firstName,
+                lastName: formData.lastName,
               })
               console.log("Teacher data updated successfully")
             } else {

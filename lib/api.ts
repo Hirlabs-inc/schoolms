@@ -123,8 +123,11 @@ export async function getItems<T>(key: string): Promise<T[]> {
   if (key === "teachers") {
     const out: any[] = []
     for (const row of rows) {
+      // Prefer names stored directly on the teachers row; fall back to profiles.
       const p = await turso.execute({ sql: "select firstName, lastName, email from profiles where id = ?", args: [row.id] })
-      out.push({ ...row, firstName: p.rows[0]?.firstName, lastName: p.rows[0]?.lastName, email: p.rows[0]?.email })
+      const firstName = row.firstName || p.rows[0]?.firstName || null
+      const lastName = row.lastName || p.rows[0]?.lastName || null
+      out.push({ ...row, firstName, lastName, email: row.email || p.rows[0]?.email })
     }
     return out as T[]
   }
@@ -366,8 +369,8 @@ export async function createUser(userData: any) {
     }
   } else if (userData.role === "TEACHER") {
     await turso.execute({
-      sql: "insert into teachers (id, staffId, department, specialization) values (?, ?, ?, ?)",
-      args: [userId, userData.staffId || "TCH" + Math.floor(Math.random() * 1000), userData.department || null, userData.specialization || null],
+      sql: "insert into teachers (id, staffId, department, specialization, firstName, lastName) values (?, ?, ?, ?, ?, ?)",
+      args: [userId, userData.staffId || "TCH" + Math.floor(Math.random() * 1000), userData.department || null, userData.specialization || null, userData.firstName || null, userData.lastName || null],
     })
   }
 
