@@ -1,9 +1,15 @@
 # ---- Build stage ----
 FROM node:20-alpine AS builder
+ARG JWT_SECRET
+ARG TURSO_URL
+ARG TURSO_TOKEN
 WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm install --legacy-peer-deps
 COPY . .
+ENV JWT_SECRET=$JWT_SECRET
+ENV TURSO_URL=$TURSO_URL
+ENV TURSO_TOKEN=$TURSO_TOKEN
 RUN npm run build
 
 # ---- Runtime stage ----
