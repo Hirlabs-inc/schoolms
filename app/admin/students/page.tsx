@@ -114,6 +114,8 @@ export default function StudentsPage() {
     try {
       const primaryCourseId = selectedCourseIds[0]
       const studentData = {
+        firstName: formData.firstName,
+        lastName: formData.lastName,
         phone: formData.phone,
         gender: formData.gender,
         courseId: primaryCourseId,
@@ -279,8 +281,8 @@ export default function StudentsPage() {
                         </div>
                       </div>
                       <div className="grid gap-2">
-                        <Label htmlFor="email">Email {editingStudent ? "" : "(Optional)"}</Label>
-                        <Input id="email" type="email" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} required={!editingStudent} />
+                        <Label htmlFor="email">Email (Optional)</Label>
+                        <Input id="email" type="email" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} />
                       </div>
                       <div className="grid gap-2">
                         <Label htmlFor="phone">Phone Number</Label>

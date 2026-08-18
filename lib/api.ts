@@ -102,13 +102,18 @@ export async function getItems<T>(key: string): Promise<T[]> {
   if (key === "students") {
     const out: any[] = []
     for (const row of rows) {
+      // Prefer names stored directly on the students row (non-login students
+      // have no profiles row). Fall back to profiles only if the student
+      // columns are empty (legacy login students).
       const p = await turso.execute({ sql: "select firstName, lastName, email from profiles where id = ?", args: [row.profileId || row.id] })
       const c = row.courseId ? await turso.execute({ sql: "select name from courses where id = ?", args: [row.courseId] }) : null
+      const firstName = row.firstName || p.rows[0]?.firstName || null
+      const lastName = row.lastName || p.rows[0]?.lastName || null
       out.push({
         ...row,
-        firstName: p.rows[0]?.firstName || null,
-        lastName: p.rows[0]?.lastName || null,
-        email: p.rows[0]?.email || row.email || null,
+        firstName,
+        lastName,
+        email: row.email || p.rows[0]?.email || null,
         courseName: c?.rows[0]?.name,
       })
     }
@@ -387,11 +392,13 @@ export async function registerStudent(userData: any) {
   }
 
   await turso.execute({
-    sql: "insert into students (id, profileId, email, studentNumber, enrollmentYear, classId, academicYear, parentPhone, courseId, phone, gender, admissionDate, expectedCompletionDate, status) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    sql: "insert into students (id, profileId, email, firstName, lastName, studentNumber, enrollmentYear, classId, academicYear, parentPhone, courseId, phone, gender, admissionDate, expectedCompletionDate, status) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     args: [
       userId,
       createLoginAccount ? userId : null,
       userData.email || null,
+      userData.firstName || null,
+      userData.lastName || null,
       userData.studentNumber || generateStudentNumber(),
       new Date().getFullYear(),
       userData.classId || null,
