@@ -91,120 +91,209 @@ export const canManageFinance = (u: any) => u && ["ADMIN", "MANAGER", "SECRETARY
 export const canManageSettings = (u: any) => u && ["ADMIN", "MANAGER"].includes(u.role)
 export const isAdmin = (u: any) => u && u.role === "ADMIN"
 
+function uniqueIds(values: Array<string | null | undefined>): string[] {
+  return Array.from(new Set(values.filter((v): v is string => !!v)))
+}
+
+function placeholders(n: number): string {
+  return Array.from({ length: n }, () => "?").join(", ")
+}
+
+function indexRows(rows: any[]): Map<string, any> {
+  const m = new Map<string, any>()
+  for (const r of rows) m.set(r.id, r)
+  return m
+}
+
 export async function getItems<T>(key: string): Promise<T[]> {
   requireAuth()
   const table = TABLE_MAP[key]
   if (!table) throw new Error(`Unknown key: ${key}`)
 
+  // Fetch the table once, then batch all lookups (profiles, courses, ...) into a
+  // single HTTP round trip using IN clauses. This avoids the previous N+1
+  // pattern where every row triggered its own round trip (the cause of the slow
+  // page loads).
   const rs = await turso.execute(`select * from ${table}`)
   const rows = rs.rows as any[]
 
   if (key === "students") {
-    const out: any[] = []
-    for (const row of rows) {
-      // Prefer names stored directly on the students row (non-login students
-      // have no profiles row). Fall back to profiles only if the student
-      // columns are empty (legacy login students).
-      const p = await turso.execute({ sql: "select firstName, lastName, email from profiles where id = ?", args: [row.profileId || row.id] })
-      const c = row.courseId ? await turso.execute({ sql: "select name from courses where id = ?", args: [row.courseId] }) : null
-      const firstName = row.firstName || p.rows[0]?.firstName || null
-      const lastName = row.lastName || p.rows[0]?.lastName || null
-      out.push({
-        ...row,
-        firstName,
-        lastName,
-        email: row.email || p.rows[0]?.email || null,
-        courseName: c?.rows[0]?.name,
+    const profileIds = uniqueIds(rows.map((r) => r.profileId || r.id))
+    const courseIds = uniqueIds(rows.map((r) => r.courseId))
+    const batchQueries: Array<{ sql: string; args: any[] }> = []
+    if (profileIds.length) {
+      batchQueries.push({
+        sql: `select id, firstName, lastName, email from profiles where id in (${placeholders(profileIds.length)})`,
+        args: profileIds,
       })
     }
-    return out as T[]
+    if (courseIds.length) {
+      batchQueries.push({
+        sql: `select id, name from courses where id in (${placeholders(courseIds.length)})`,
+        args: courseIds,
+      })
+    }
+    const results = batchQueries.length ? await turso.batch(batchQueries) : []
+    const profileMap = indexRows(results[0]?.rows ?? [])
+    const courseMap = indexRows(results[1]?.rows ?? [])
+    return rows.map((row) => {
+      const p = profileMap.get(row.profileId || row.id)
+      const c = row.courseId ? courseMap.get(row.courseId) : null
+      return {
+        ...row,
+        firstName: row.firstName || p?.firstName || null,
+        lastName: row.lastName || p?.lastName || null,
+        email: row.email || p?.email || null,
+        courseName: c?.name,
+      }
+    }) as T[]
   }
 
   if (key === "teachers") {
-    const out: any[] = []
-    for (const row of rows) {
-      // Prefer names stored directly on the teachers row; fall back to profiles.
-      const p = await turso.execute({ sql: "select firstName, lastName, email from profiles where id = ?", args: [row.id] })
-      const firstName = row.firstName || p.rows[0]?.firstName || null
-      const lastName = row.lastName || p.rows[0]?.lastName || null
-      out.push({ ...row, firstName, lastName, email: row.email || p.rows[0]?.email })
+    const ids = uniqueIds(rows.map((r) => r.id))
+    const batchQueries: Array<{ sql: string; args: any[] }> = []
+    if (ids.length) {
+      batchQueries.push({
+        sql: `select id, firstName, lastName, email from profiles where id in (${placeholders(ids.length)})`,
+        args: ids,
+      })
     }
-    return out as T[]
+    const results = batchQueries.length ? await turso.batch(batchQueries) : []
+    const profileMap = indexRows(results[0]?.rows ?? [])
+    return rows.map((row) => {
+      const p = profileMap.get(row.id)
+      return {
+        ...row,
+        firstName: row.firstName || p?.firstName || null,
+        lastName: row.lastName || p?.lastName || null,
+        email: row.email || p?.email || null,
+      }
+    }) as T[]
   }
 
   if (key === "payments") {
-    const out: any[] = []
-    for (const row of rows) {
-      let nameRow: any = null
-      if (row.studentId) {
-        const stu = await turso.execute({ sql: "select profileId from students where id = ?", args: [row.studentId] })
-        const pId = stu.rows[0]?.profileId || row.studentId
-        const p = await turso.execute({ sql: "select firstName, lastName, email from profiles where id = ?", args: [pId] })
-        if (p.rows[0]) nameRow = p.rows[0]
-        else nameRow = { firstName: null, lastName: null, email: row.email || null }
-      }
-      out.push({ ...row, firstName: nameRow?.firstName ?? null, lastName: nameRow?.lastName ?? null, email: nameRow?.email ?? row.email ?? null })
+    // Resolve each studentId -> profileId (students.profileId, falling back to
+    // the student id itself for legacy login students).
+    const studentIds = uniqueIds(rows.map((r) => r.studentId))
+    let studentProfileMap = new Map<string, string>()
+    if (studentIds.length) {
+      const stuRs = await turso.execute({
+        sql: `select id, profileId from students where id in (${placeholders(studentIds.length)})`,
+        args: studentIds,
+      })
+      studentProfileMap = new Map(
+        (stuRs.rows as any[]).map((r) => [r.id, r.profileId])
+      )
     }
-    return out as T[]
+    const profileIds = uniqueIds(
+      rows.map((r) => (r.studentId ? studentProfileMap.get(r.studentId) || r.studentId : null))
+    )
+    const batchQueries: Array<{ sql: string; args: any[] }> = []
+    if (profileIds.length) {
+      batchQueries.push({
+        sql: `select id, firstName, lastName, email from profiles where id in (${placeholders(profileIds.length)})`,
+        args: profileIds,
+      })
+    }
+    const results = batchQueries.length ? await turso.batch(batchQueries) : []
+    const profileMap = indexRows(results[0]?.rows ?? [])
+    return rows.map((row) => {
+      if (!row.studentId) {
+        return { ...row, firstName: null, lastName: null, email: row.email || null }
+      }
+      const pId = studentProfileMap.get(row.studentId) || row.studentId
+      const p = profileMap.get(pId)
+      return {
+        ...row,
+        firstName: p?.firstName ?? null,
+        lastName: p?.lastName ?? null,
+        email: p?.email ?? row.email ?? null,
+      }
+    }) as T[]
   }
 
   if (key === "fees") {
-    const out: any[] = []
-    for (const row of rows) {
-      const c = row.courseId ? await turso.execute({ sql: "select name from courses where id = ?", args: [row.courseId] }) : null
-      out.push({ ...row, courseName: c?.rows[0]?.name })
+    const courseIds = uniqueIds(rows.map((r) => r.courseId))
+    const batchQueries: Array<{ sql: string; args: any[] }> = []
+    if (courseIds.length) {
+      batchQueries.push({
+        sql: `select id, name from courses where id in (${placeholders(courseIds.length)})`,
+        args: courseIds,
+      })
     }
-    return out as T[]
+    const results = batchQueries.length ? await turso.batch(batchQueries) : []
+    const courseMap = indexRows(results[0]?.rows ?? [])
+    return rows.map((row) => ({
+      ...row,
+      courseName: row.courseId ? courseMap.get(row.courseId)?.name : undefined,
+    })) as T[]
   }
 
-  if (key === "expenses") {
-    const out: any[] = []
-    for (const row of rows) {
-      const p = row.createdBy ? await turso.execute({ sql: "select firstName, lastName from profiles where id = ?", args: [row.createdBy] }) : null
-      out.push({ ...row, firstName: p?.rows[0]?.firstName, lastName: p?.rows[0]?.lastName })
+  if (key === "expenses" || key === "income") {
+    const ids = uniqueIds(rows.map((r) => r.createdBy))
+    const batchQueries: Array<{ sql: string; args: any[] }> = []
+    if (ids.length) {
+      batchQueries.push({
+        sql: `select id, firstName, lastName from profiles where id in (${placeholders(ids.length)})`,
+        args: ids,
+      })
     }
-    return out as T[]
+    const results = batchQueries.length ? await turso.batch(batchQueries) : []
+    const profileMap = indexRows(results[0]?.rows ?? [])
+    return rows.map((row) => {
+      const p = row.createdBy ? profileMap.get(row.createdBy) : null
+      return { ...row, firstName: p?.firstName, lastName: p?.lastName }
+    }) as T[]
   }
 
-  if (key === "income") {
-    const out: any[] = []
-    for (const row of rows) {
-      const p = row.createdBy ? await turso.execute({ sql: "select firstName, lastName from profiles where id = ?", args: [row.createdBy] }) : null
-      out.push({ ...row, firstName: p?.rows[0]?.firstName, lastName: p?.rows[0]?.lastName })
+  if (key === "teacherContracts" || key === "payrollRecords") {
+    const ids = uniqueIds(rows.map((r) => r.teacherId))
+    const batchQueries: Array<{ sql: string; args: any[] }> = []
+    if (ids.length) {
+      batchQueries.push({
+        sql: `select id, firstName, lastName from profiles where id in (${placeholders(ids.length)})`,
+        args: ids,
+      })
     }
-    return out as T[]
-  }
-
-  if (key === "teacherContracts") {
-    const out: any[] = []
-    for (const row of rows) {
-      const p = await turso.execute({ sql: "select firstName, lastName from profiles where id = ?", args: [row.teacherId] })
-      out.push({ ...row, teacherName: p.rows[0] ? `${p.rows[0].firstName} ${p.rows[0].lastName}` : "Unknown" })
-    }
-    return out as T[]
-  }
-
-  if (key === "payrollRecords") {
-    const out: any[] = []
-    for (const row of rows) {
-      const p = await turso.execute({ sql: "select firstName, lastName from profiles where id = ?", args: [row.teacherId] })
-      out.push({ ...row, teacherName: p.rows[0] ? `${p.rows[0].firstName} ${p.rows[0].lastName}` : "Unknown" })
-    }
-    return out as T[]
+    const results = batchQueries.length ? await turso.batch(batchQueries) : []
+    const profileMap = indexRows(results[0]?.rows ?? [])
+    return rows.map((row) => {
+      const p = profileMap.get(row.teacherId)
+      return {
+        ...row,
+        teacherName: p ? `${p.firstName} ${p.lastName}` : "Unknown",
+      }
+    }) as T[]
   }
 
   if (key === "enrollmentProgress") {
-    const out: any[] = []
-    for (const row of rows) {
-      const p = await turso.execute({ sql: "select firstName, lastName from profiles where id = ?", args: [row.studentId] })
-      const c = await turso.execute({ sql: "select name from courses where id = ?", args: [row.courseId] })
-      out.push({
-        ...row,
-        studentName: p.rows[0] ? `${p.rows[0].firstName} ${p.rows[0].lastName}` : "Unknown",
-        courseName: c.rows[0]?.name || "Unknown",
+    const studentIds = uniqueIds(rows.map((r) => r.studentId))
+    const courseIds = uniqueIds(rows.map((r) => r.courseId))
+    const batchQueries: Array<{ sql: string; args: any[] }> = []
+    if (studentIds.length) {
+      batchQueries.push({
+        sql: `select id, firstName, lastName from profiles where id in (${placeholders(studentIds.length)})`,
+        args: studentIds,
       })
     }
-    return out as T[]
+    if (courseIds.length) {
+      batchQueries.push({
+        sql: `select id, name from courses where id in (${placeholders(courseIds.length)})`,
+        args: courseIds,
+      })
+    }
+    const results = batchQueries.length ? await turso.batch(batchQueries) : []
+    const profileMap = indexRows(results[0]?.rows ?? [])
+    const courseMap = indexRows(results[1]?.rows ?? [])
+    return rows.map((row) => {
+      const p = profileMap.get(row.studentId)
+      const c = courseMap.get(row.courseId)
+      return {
+        ...row,
+        studentName: p ? `${p.firstName} ${p.lastName}` : "Unknown",
+        courseName: c?.name || "Unknown",
+      }
+    }) as T[]
   }
 
   return rows as T[]
@@ -218,10 +307,10 @@ export async function addItem<T extends Record<string, any>>(key: string, item: 
   const data = { ...item, id: item.id || crypto.randomUUID() }
   const cols = Object.keys(data)
   const vals = Object.values(data)
-  const placeholders = cols.map(() => "?").join(", ")
+  const placeholderStr = cols.map(() => "?").join(", ")
 
   await turso.execute({
-    sql: `insert into ${table} (${cols.map(c => `"${c}"`).join(", ")}) values (${placeholders})`,
+    sql: `insert into ${table} (${cols.map(c => `"${c}"`).join(", ")}) values (${placeholderStr})`,
     args: vals,
   })
 
@@ -241,12 +330,27 @@ export async function updateItem<T>(key: string, id: string, updates: Partial<T>
   const vals = Object.values(updates)
   const setClause = cols.map(c => `"${c}" = ?`).join(", ")
 
+  // Fee balances depend on payment amounts, so keep them in sync on edits.
+  let studentId: string | undefined
+  if (key === "payments") {
+    const existing = await turso.execute({
+      sql: "select studentId from payments where id = ?",
+      args: [id],
+    })
+    studentId = existing.rows[0]?.studentId
+  }
+
   const rs = await turso.execute({
     sql: `update ${table} set ${setClause} where id = ? returning *`,
     args: [...vals, id],
   })
 
   if (rs.rows.length === 0) throw new Error(`Record not found in ${table} with id ${id}`)
+
+  if (key === "payments" && studentId) {
+    await recomputeFeeForStudent(studentId)
+  }
+
   return rs.rows[0] as T
 }
 
@@ -270,6 +374,19 @@ export async function deleteItem(key: string, id: string): Promise<void> {
   requireAuth()
   const table = TABLE_MAP[key]
   if (!table) throw new Error(`Unknown key: ${key}`)
+
+  // Fee balances depend on payment amounts, so keep them in sync on deletes.
+  if (key === "payments") {
+    const existing = await turso.execute({
+      sql: "select studentId from payments where id = ?",
+      args: [id],
+    })
+    const studentId = existing.rows[0]?.studentId
+    await turso.execute({ sql: `delete from ${table} where id = ?`, args: [id] })
+    if (studentId) await recomputeFeeForStudent(studentId)
+    return
+  }
+
   await turso.execute({ sql: `delete from ${table} where id = ?`, args: [id] })
 }
 
@@ -283,10 +400,18 @@ export async function deleteStudent(id: string): Promise<void> {
   await turso.execute({ sql: "delete from attendance where \"studentId\" = ?", args: [id] })
   // 3. Delete enrollment progress records
   await turso.execute({ sql: "delete from enrollment_progress where \"studentId\" = ?", args: [id] })
-  // 4. Delete payments linked to this student's fees
+  // 4. Delete payments linked to this student's fees (capture receipts first so
+  //    we can remove the corresponding income records)
+  const payRs = await turso.execute({ sql: "select receiptNumber from payments where \"studentId\" = ?", args: [id] })
+  const receipts = uniqueIds((payRs.rows as any[]).map((r) => r.receiptNumber))
   await turso.execute({ sql: "delete from payments where \"studentId\" = ?", args: [id] })
-  // 5. Delete income records linked to this student's fees
-  await turso.execute({ sql: "delete from income where description like ?", args: [`%studentId:${id}%`] })
+  // 5. Delete income records generated from this student's fee payments
+  if (receipts.length) {
+    await turso.execute({
+      sql: `delete from income where receiptNumber in (${placeholders(receipts.length)})`,
+      args: receipts,
+    })
+  }
   // 6. Delete fees for this student
   await turso.execute({ sql: "delete from fees where \"studentId\" = ?", args: [id] })
   // 7. Delete the student record
@@ -341,24 +466,25 @@ export async function createUser(userData: any) {
         ],
       })
     }
-    // Auto-assign fee based on course
-    if (userData.courseId) {
-      const courseRs = await turso.execute({ sql: "select fee from courses where id = ?", args: [userData.courseId] })
-      if (courseRs.rows.length > 0) {
-        const fee = Number(courseRs.rows[0].fee) || 0
-        await turso.execute({
-          sql: "insert into fees (id, studentId, courseId, totalFee, balance, status) values (?, ?, ?, ?, ?, ?)",
-          args: [crypto.randomUUID(), userId, userData.courseId, fee, fee, "PENDING"],
-        })
-      }
+    // Auto-assign a fee for every enrolled course, create enrollment progress
+    // records and compute teacher commission per course.
+    const courseIds = uniqueIds(
+      Array.isArray(userData.courseIds) && userData.courseIds.length
+        ? userData.courseIds
+        : userData.courseId
+          ? [userData.courseId]
+          : []
+    )
+    await createFeesForStudent(userId, courseIds)
+    for (const cid of courseIds) {
       // Auto-create enrollment progress record
       await turso.execute({
         sql: "insert into enrollment_progress (id, studentId, courseId, progressPercent, status, startDate) values (?, ?, ?, 0, 'ENROLLED', ?)",
-        args: [crypto.randomUUID(), userId, userData.courseId, userData.admissionDate || null],
+        args: [crypto.randomUUID(), userId, cid, userData.admissionDate || null],
       })
       // Auto-compute teacher commission for this enrollment
       try {
-        await computeCommissionForEnrollment(userId, userData.courseId)
+        await computeCommissionForEnrollment(userId, cid)
       } catch (e) {
         const msg = (e as Error)?.message || "unknown error"
         if (!msg.includes("Commission configuration")) {
@@ -416,17 +542,16 @@ export async function registerStudent(userData: any) {
     ],
   })
 
-  // Auto-assign fee based on the student's primary course.
-  if (userData.courseId) {
-    const courseRs = await turso.execute({ sql: "select fee from courses where id = ?", args: [userData.courseId] })
-    if (courseRs.rows.length > 0) {
-      const fee = Number(courseRs.rows[0].fee) || 0
-      await turso.execute({
-        sql: "insert into fees (id, studentId, courseId, totalFee, balance, status) values (?, ?, ?, ?, ?, ?)",
-        args: [crypto.randomUUID(), userId, userData.courseId, fee, fee, "PENDING"],
-      })
-    }
-  }
+  // Auto-assign a fee for every enrolled course (multi-course students get a
+  // separate fee record per course).
+  const courseIds = uniqueIds(
+    Array.isArray(userData.courseIds) && userData.courseIds.length
+      ? userData.courseIds
+      : userData.courseId
+        ? [userData.courseId]
+        : []
+  )
+  await createFeesForStudent(userId, courseIds)
 
   return { success: true, userId }
 }
@@ -435,6 +560,28 @@ export function generateStudentNumber(): string {
   const year = new Date().getFullYear().toString().slice(-2)
   const random = Math.floor(Math.random() * 10000).toString().padStart(4, "0")
   return `STU${year}${random}`
+}
+
+// Create one PENDING fee per enrolled course so multi-course students get a
+// separate fee record per course.
+async function createFeesForStudent(studentId: string, courseIds: string[]) {
+  const ids = uniqueIds(courseIds)
+  if (!ids.length) return
+  const courseRs = await turso.execute({
+    sql: `select id, fee from courses where id in (${placeholders(ids.length)})`,
+    args: ids,
+  })
+  const feeByCourse = new Map<string, number>()
+  for (const r of courseRs.rows as any[]) {
+    feeByCourse.set(r.id, Number(r.fee) || 0)
+  }
+  for (const cid of ids) {
+    const fee = feeByCourse.get(cid) ?? 0
+    await turso.execute({
+      sql: "insert into fees (id, studentId, courseId, totalFee, balance, status) values (?, ?, ?, ?, ?, ?)",
+      args: [crypto.randomUUID(), studentId, cid, fee, fee, "PENDING"],
+    })
+  }
 }
 
 // --- Fee tracking & Teacher commission ---
@@ -450,10 +597,41 @@ export async function updateOverdueFees() {
 export async function recomputeFeeForStudent(studentId: string) {
   const feesRs = await turso.execute({ sql: "select * from fees where studentId = ?", args: [studentId] })
   const fees = feesRs.rows as Fee[]
-  const paidRs = await turso.execute({ sql: "select coalesce(sum(amount), 0) as paid from payments where studentId = ?", args: [studentId] })
-  const paid = Number(paidRs.rows[0]?.paid) || 0
+  if (fees.length === 0) return
+
+  // Sum payments per fee. Payments that were recorded without a feeId are
+  // applied to the oldest unpaid fee first (legacy data migration).
+  const payRs = await turso.execute({
+    sql: "select feeId, amount from payments where studentId = ?",
+    args: [studentId],
+  })
+  const payRows = payRs.rows as any[]
+  const paidByFee: Record<string, number> = {}
+  let unattached = 0
+  for (const p of payRows) {
+    const amount = Number(p.amount) || 0
+    if (p.feeId) paidByFee[p.feeId] = (paidByFee[p.feeId] || 0) + amount
+    else unattached += amount
+  }
+
+  const sorted = [...fees].sort((a, b) =>
+    String(a.createdAt || "").localeCompare(String(b.createdAt || "")) ||
+    String(a.id).localeCompare(String(b.id))
+  )
+  let remaining = unattached
+  for (const fee of sorted) {
+    if (remaining <= 0) break
+    const totalFee = Number(fee.totalFee) || 0
+    const alreadyPaid = paidByFee[fee.id] || 0
+    const need = Math.max(0, totalFee - alreadyPaid)
+    const applied = Math.min(need, remaining)
+    paidByFee[fee.id] = alreadyPaid + applied
+    remaining -= applied
+  }
+
   for (const fee of fees) {
     const totalFee = Number(fee.totalFee) || 0
+    const paid = paidByFee[fee.id] || 0
     const balance = Math.max(0, totalFee - paid)
     const status = balance <= 0 ? "PAID" : paid > 0 ? "PARTIAL" : "PENDING"
     await turso.execute({
@@ -496,7 +674,7 @@ export async function getStudentFeeSummary(studentId: string) {
 
   const totalFee = fees.reduce((s, f) => s + (Number(f.totalFee) || 0), 0)
   const amountPaid = payments.reduce((s, p) => s + (Number(p.amount) || 0), 0)
-  const balance = totalFee - amountPaid
+  const balance = Math.max(0, totalFee - amountPaid)
 
   const nonPaidFees = fees.filter(f => f.status !== "PAID")
   const dueDates = nonPaidFees
@@ -597,58 +775,84 @@ export async function getTeacherCommissionSummaries(teacherId?: string): Promise
     ? await turso.execute({ sql: "select * from teachers where id = ?", args: [teacherId] })
     : await turso.execute({ sql: "select * from teachers" })
   const teacherRows = teacherRs.rows as any[]
+  const teacherIds = uniqueIds(teacherRows.map((t) => t.id))
 
-  const summaries: TeacherCommissionSummary[] = []
-  for (const teacher of teacherRows) {
+  let profileMap = new Map<string, any>()
+  const ctsByTeacher = new Map<string, string[]>()
+  const legacyByTeacher = new Map<string, string[]>()
+  let commissionRows: any[] = []
+  if (teacherIds.length) {
+    // Fetch all teacher-related data in parallel, single HTTP round trip each.
+    const [profiles, cts, legacy, commissions] = await Promise.all([
+      turso.execute({ sql: `select id, firstName, lastName from profiles where id in (${placeholders(teacherIds.length)})`, args: teacherIds }),
+      turso.execute({ sql: `select teacherId, courseId from course_teachers where teacherId in (${placeholders(teacherIds.length)})`, args: teacherIds }),
+      turso.execute({ sql: `select id, teacherId from courses where teacherId in (${placeholders(teacherIds.length)})`, args: teacherIds }),
+      turso.execute({ sql: `select teacherId, commissionAmount, paidAmount from teacher_commissions where teacherId in (${placeholders(teacherIds.length)})`, args: teacherIds }),
+    ])
+    profileMap = indexRows(profiles.rows)
+    for (const r of cts.rows as any[]) {
+      if (!ctsByTeacher.has(r.teacherId)) ctsByTeacher.set(r.teacherId, [])
+      ctsByTeacher.get(r.teacherId)!.push(r.courseId)
+    }
+    for (const r of legacy.rows as any[]) {
+      if (!legacyByTeacher.has(r.teacherId)) legacyByTeacher.set(r.teacherId, [])
+      legacyByTeacher.get(r.teacherId)!.push(r.id)
+    }
+    commissionRows = commissions.rows as any[]
+  }
+
+  // Merge assigned courses per teacher (course_teachers + legacy column), deduped.
+  const courseIdsByTeacher: Record<string, string[]> = {}
+  const allCourseIds: string[] = []
+  for (const t of teacherRows) {
+    const merged: string[] = []
+    for (const cid of [...(ctsByTeacher.get(t.id) ?? []), ...(legacyByTeacher.get(t.id) ?? [])]) {
+      if (!merged.includes(cid)) merged.push(cid)
+    }
+    courseIdsByTeacher[t.id] = merged
+    allCourseIds.push(...merged)
+  }
+  const uniqueCourseIds = uniqueIds(allCourseIds)
+
+  let studentCountByCourse = new Map<string, number>()
+  if (uniqueCourseIds.length) {
+    const studentRs = await turso.execute({
+      sql: `select courseId, count(*) as cnt from students where courseId in (${placeholders(uniqueCourseIds.length)}) group by courseId`,
+      args: uniqueCourseIds,
+    })
+    for (const r of studentRs.rows as any[]) {
+      studentCountByCourse.set(r.courseId, Number(r.cnt) || 0)
+    }
+  }
+
+  // Aggregate commission sums per teacher in memory (avoids one query per teacher).
+  const earnedByTeacher = new Map<string, number>()
+  const paidByTeacher = new Map<string, number>()
+  for (const r of commissionRows) {
+    earnedByTeacher.set(r.teacherId, (earnedByTeacher.get(r.teacherId) || 0) + (Number(r.commissionAmount) || 0))
+    paidByTeacher.set(r.teacherId, (paidByTeacher.get(r.teacherId) || 0) + (Number(r.paidAmount) || 0))
+  }
+
+  return teacherRows.map((teacher) => {
     const tid = teacher.id
-    const p = await turso.execute({ sql: "select firstName, lastName from profiles where id = ?", args: [tid] })
-    const teacherName = p.rows[0] ? `${p.rows[0].firstName} ${p.rows[0].lastName}`.trim() : "Unknown"
+    const p = profileMap.get(tid)
+    const teacherName = p ? `${p.firstName} ${p.lastName}`.trim() : "Unknown"
+    const totalStudentsAssigned = (courseIdsByTeacher[tid] || []).reduce(
+      (s, cid) => s + (studentCountByCourse.get(cid) || 0),
+      0
+    )
+    const totalCommissionEarned = earnedByTeacher.get(tid) || 0
+    const amountPaid = paidByTeacher.get(tid) || 0
 
-    // Courses where this teacher is assigned (via course_teachers, fallback legacy column)
-    const ctRs = await turso.execute({
-      sql: "select distinct courseId from course_teachers where teacherId = ?",
-      args: [tid],
-    })
-    const courseIds = (ctRs.rows as any[]).map((r) => r.courseId)
-    const legacyRs = await turso.execute({
-      sql: "select id from courses where teacherId = ?",
-      args: [tid],
-    })
-    for (const r of legacyRs.rows as any[]) {
-      if (!courseIds.includes(r.id)) courseIds.push(r.id)
-    }
-    let totalStudentsAssigned = 0
-    if (courseIds.length) {
-      const placeholders = courseIds.map(() => "?").join(", ")
-      const studentRs = await turso.execute({
-        sql: `select count(*) as cnt from students where courseId in (${placeholders})`,
-        args: courseIds,
-      })
-      totalStudentsAssigned = Number(studentRs.rows[0]?.cnt) || 0
-    }
-
-    const earnedRs = await turso.execute({
-      sql: "select sum(commissionAmount) as s from teacher_commissions where teacherId = ?",
-      args: [tid],
-    })
-    const paidRs = await turso.execute({
-      sql: "select sum(paidAmount) as s from teacher_commissions where teacherId = ?",
-      args: [tid],
-    })
-
-    const totalCommissionEarned = Number(earnedRs.rows[0]?.s) || 0
-    const amountPaid = Number(paidRs.rows[0]?.s) || 0
-
-    summaries.push({
+    return {
       teacherId: tid,
       teacherName,
       totalStudentsAssigned,
       totalCommissionEarned,
       amountPaid,
       remainingBalance: Math.max(0, totalCommissionEarned - amountPaid),
-    })
-  }
-  return summaries
+    }
+  })
 }
 
 export interface TeacherCommissionCourseRow {
@@ -667,41 +871,79 @@ export interface TeacherCommissionCourseRow {
 export async function getTeacherCommissionBreakdown(): Promise<TeacherCommissionCourseRow[]> {
   requireAuth()
   const teacherRs = await turso.execute({ sql: "select * from teachers" })
-  const rows: TeacherCommissionCourseRow[] = []
+  const teacherRows = teacherRs.rows as any[]
+  const teacherIds = uniqueIds(teacherRows.map((t) => t.id))
 
-  for (const teacher of teacherRs.rows as any[]) {
-    const tid = teacher.id
-    const p = await turso.execute({ sql: "select firstName, lastName from profiles where id = ?", args: [tid] })
-    const teacherName = p.rows[0] ? `${p.rows[0].firstName} ${p.rows[0].lastName}`.trim() : "Unknown"
-
-    // Courses where this teacher is assigned (course_teachers, fallback legacy column)
-    const ctRs = await turso.execute({ sql: "select distinct courseId from course_teachers where teacherId = ?", args: [tid] })
-    const courseIds = (ctRs.rows as any[]).map((r) => r.courseId)
-    const legacyRs = await turso.execute({ sql: "select id from courses where teacherId = ?", args: [tid] })
-    for (const r of legacyRs.rows as any[]) {
-      if (!courseIds.includes(r.id)) courseIds.push(r.id)
+  let profileMap = new Map<string, any>()
+  const ctsByTeacher = new Map<string, string[]>()
+  const legacyByTeacher = new Map<string, string[]>()
+  let commissionRows: any[] = []
+  if (teacherIds.length) {
+    const [profiles, cts, legacy, commissions] = await Promise.all([
+      turso.execute({ sql: `select id, firstName, lastName from profiles where id in (${placeholders(teacherIds.length)})`, args: teacherIds }),
+      turso.execute({ sql: `select teacherId, courseId from course_teachers where teacherId in (${placeholders(teacherIds.length)})`, args: teacherIds }),
+      turso.execute({ sql: `select id, teacherId from courses where teacherId in (${placeholders(teacherIds.length)})`, args: teacherIds }),
+      turso.execute({ sql: `select teacherId, courseId, commissionAmount, paidAmount from teacher_commissions where teacherId in (${placeholders(teacherIds.length)})`, args: teacherIds }),
+    ])
+    profileMap = indexRows(profiles.rows)
+    for (const r of cts.rows as any[]) {
+      if (!ctsByTeacher.has(r.teacherId)) ctsByTeacher.set(r.teacherId, [])
+      ctsByTeacher.get(r.teacherId)!.push(r.courseId)
     }
+    for (const r of legacy.rows as any[]) {
+      if (!legacyByTeacher.has(r.teacherId)) legacyByTeacher.set(r.teacherId, [])
+      legacyByTeacher.get(r.teacherId)!.push(r.id)
+    }
+    commissionRows = commissions.rows as any[]
+  }
 
-    for (const courseId of courseIds) {
-      const c = await turso.execute({ sql: "select name from courses where id = ?", args: [courseId] })
-      const courseName = c.rows[0]?.name || "Unknown course"
+  // Merge assigned courses per teacher (course_teachers + legacy column), deduped.
+  const courseIdsByTeacher: Record<string, string[]> = {}
+  const allCourseIds: string[] = []
+  for (const t of teacherRows) {
+    const merged: string[] = []
+    for (const cid of [...(ctsByTeacher.get(t.id) ?? []), ...(legacyByTeacher.get(t.id) ?? [])]) {
+      if (!merged.includes(cid)) merged.push(cid)
+    }
+    courseIdsByTeacher[t.id] = merged
+    allCourseIds.push(...merged)
+  }
+  const uniqueCourseIds = uniqueIds(allCourseIds)
 
-      const studentRs = await turso.execute({
-        sql: "select count(*) as cnt from students where courseId = ?",
-        args: [courseId],
-      })
-      const studentsInCourse = Number(studentRs.rows[0]?.cnt) || 0
+  let courseNameMap = new Map<string, any>()
+  let studentCountByCourse = new Map<string, number>()
+  if (uniqueCourseIds.length) {
+    const [courses, students] = await Promise.all([
+      turso.execute({ sql: `select id, name from courses where id in (${placeholders(uniqueCourseIds.length)})`, args: uniqueCourseIds }),
+      turso.execute({ sql: `select courseId, count(*) as cnt from students where courseId in (${placeholders(uniqueCourseIds.length)}) group by courseId`, args: uniqueCourseIds }),
+    ])
+    courseNameMap = indexRows(courses.rows)
+    for (const r of students.rows as any[]) {
+      studentCountByCourse.set(r.courseId, Number(r.cnt) || 0)
+    }
+  }
 
-      const earnedRs = await turso.execute({
-        sql: "select sum(commissionAmount) as s from teacher_commissions where teacherId = ? and courseId = ?",
-        args: [tid, courseId],
-      })
-      const paidRs = await turso.execute({
-        sql: "select sum(paidAmount) as s from teacher_commissions where teacherId = ? and courseId = ?",
-        args: [tid, courseId],
-      })
-      const commissionEarned = Number(earnedRs.rows[0]?.s) || 0
-      const amountPaid = Number(paidRs.rows[0]?.s) || 0
+  // Aggregate commission sums per (teacher, course) in memory.
+  const earnedByTeacherCourse = new Map<string, number>()
+  const paidByTeacherCourse = new Map<string, number>()
+  for (const r of commissionRows) {
+    const key = `${r.teacherId}|${r.courseId}`
+    earnedByTeacherCourse.set(key, (earnedByTeacherCourse.get(key) || 0) + (Number(r.commissionAmount) || 0))
+    paidByTeacherCourse.set(key, (paidByTeacherCourse.get(key) || 0) + (Number(r.paidAmount) || 0))
+  }
+
+  const rows: TeacherCommissionCourseRow[] = []
+  for (const teacher of teacherRows) {
+    const tid = teacher.id
+    const p = profileMap.get(tid)
+    const teacherName = p ? `${p.firstName} ${p.lastName}`.trim() : "Unknown"
+
+    for (const courseId of courseIdsByTeacher[tid] || []) {
+      const courseName = courseNameMap.get(courseId)?.name || "Unknown course"
+      const studentsInCourse = studentCountByCourse.get(courseId) || 0
+      const key = `${tid}|${courseId}`
+      const commissionEarned = earnedByTeacherCourse.get(key) || 0
+      const amountPaid = paidByTeacherCourse.get(key) || 0
 
       rows.push({
         teacherId: tid,

@@ -27,7 +27,7 @@ import { useEffect, useState } from "react"
 export default function StudentsPage() {
   const [students, setStudents] = useState<Student[]>([])
   const [courses, setCourses] = useState<Course[]>([])
-  const [feesMap, setFeesMap] = useState<Record<string, Fee>>({})
+  const [feesMap, setFeesMap] = useState<Record<string, Fee[]>>({})
   const [enrollments, setEnrollments] = useState<EnrollmentProgress[]>([])
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [isViewDialogOpen, setIsViewDialogOpen] = useState(false)
@@ -65,9 +65,10 @@ export default function StudentsPage() {
       setStudents(studentsData)
       setCourses(coursesData)
       setEnrollments(enrollmentData)
-      const feesMap: Record<string, Fee> = {}
+      const feesMap: Record<string, Fee[]> = {}
       for (const f of feesData) {
-        feesMap[f.studentId] = f
+        feesMap[f.studentId] = feesMap[f.studentId] || []
+        feesMap[f.studentId].push(f)
       }
       setFeesMap(feesMap)
     } catch (error) {
@@ -127,6 +128,7 @@ export default function StudentsPage() {
       let studentId = editingStudent?.id
 
       if (editingStudent) {
+        studentId = editingStudent.id
         // Students are linked to `profiles` (only if they have a login); update name/email there.
         await updateItem("profiles", editingStudent.id, {
           firstName: formData.firstName,
@@ -159,9 +161,8 @@ export default function StudentsPage() {
       } else {
         const result = await registerStudent({
           email: formData.email,
-          firstName: formData.firstName,
-          lastName: formData.lastName,
           ...studentData,
+          courseIds: selectedCourseIds,
         }) as { success: boolean; userId: string }
         studentId = result?.userId
 
@@ -402,16 +403,16 @@ export default function StudentsPage() {
                     </TableRow>
                   ) : (
                       filteredStudents.map((s) => {
-                        const fee = feesMap[s.id]
-                        const balance = fee ? Number(fee.balance) : 0
-                        const totalFee = fee ? Number(fee.totalFee) : 0
+                        const studentFees = feesMap[s.id] || []
+                        const balance = studentFees.reduce((sum, f) => sum + (Number(f.balance) || 0), 0)
+                        const totalFee = studentFees.reduce((sum, f) => sum + (Number(f.totalFee) || 0), 0)
                         return (
                       <TableRow key={s.id}>
                         <TableCell className="font-medium">{s.firstName} {s.lastName}</TableCell>
                         <TableCell>{s.phone || s.parentPhone || "-"}</TableCell>
                         <TableCell>{getCourseName(s.courseId || "")}</TableCell>
                         <TableCell>
-                          {fee ? (
+                          {studentFees.length > 0 ? (
                             <span className={`font-medium ${balance > 0 ? "text-red-600" : "text-green-600"}`}>
                               KSh {balance.toLocaleString()}
                             </span>
@@ -522,14 +523,16 @@ export default function StudentsPage() {
                 <div className="border-t pt-3">
                   <Label className="text-muted-foreground text-xs mb-2 block">Fee Summary</Label>
                   {(() => {
-                    const fee = feesMap[selectedStudent.id]
-                    if (!fee) return <p className="text-sm text-muted-foreground">No fee assigned</p>
-                    const paid = Number(fee.totalFee) - Number(fee.balance)
+                    const studentFees = feesMap[selectedStudent.id] || []
+                    if (studentFees.length === 0) return <p className="text-sm text-muted-foreground">No fee assigned</p>
+                    const totalFee = studentFees.reduce((sum, f) => sum + (Number(f.totalFee) || 0), 0)
+                    const balance = studentFees.reduce((sum, f) => sum + (Number(f.balance) || 0), 0)
+                    const paid = totalFee - balance
                     return (
                       <div className="grid grid-cols-3 gap-2 text-sm">
                         <div className="bg-muted rounded-lg p-2 text-center">
                           <p className="text-xs text-muted-foreground">Total Fee</p>
-                          <p className="font-bold">KSh {Number(fee.totalFee).toLocaleString()}</p>
+                          <p className="font-bold">KSh {totalFee.toLocaleString()}</p>
                         </div>
                         <div className="bg-muted rounded-lg p-2 text-center">
                           <p className="text-xs text-muted-foreground">Paid</p>
@@ -537,7 +540,7 @@ export default function StudentsPage() {
                         </div>
                         <div className="bg-muted rounded-lg p-2 text-center">
                           <p className="text-xs text-muted-foreground">Balance</p>
-                          <p className="font-bold text-red-600">KSh {Number(fee.balance).toLocaleString()}</p>
+                          <p className="font-bold text-red-600">KSh {balance.toLocaleString()}</p>
                         </div>
                       </div>
                     )

@@ -91,6 +91,14 @@ function parseValues(valuesStr: string, args: any[]) {
 
 /** Parse a simple expression like `col = ?` or `col = 'val'` and return [col, value]. */
 function parseCondition(cond: string, args: any[], argIdx: { idx: number }): [string, (r: any) => boolean] | null {
+  // col IN (?, ?, ...) or IN ('a', 'b')
+  const inMatch = cond.match(/(\w+)\s+in\s*\((.+)\)/i)
+  if (inMatch) {
+    const col = inMatch[1]
+    const rawVals = inMatch[2].split(",").map((v) => v.trim())
+    const vals = rawVals.map((v) => v === "?" ? args[argIdx.idx++] : v.replace(/^'(.*)'$/, "$1"))
+    return [col, (r: any) => vals.some((v) => String(r[col]) === String(v))]
+  }
   // col >= ?, col <= ?, etc
   const opMatch = cond.match(/(\w+)\s*(>=|<=|!=|<>|=|>|<)\s*(.+)/i)
   if (opMatch) {
@@ -378,7 +386,15 @@ globalThis.fetch = vi.fn(async (input: any, init?: any) => {
   }
 
   if (url.includes("/api/db")) {
-    const { sql, args } = body
+    const { sql, args, queries } = body
+    if (Array.isArray(queries)) {
+      const results: Array<{ rows: any[] }> = []
+      for (const q of queries) {
+        const result = await execute({ sql: q.sql, args: q.args || [] })
+        results.push({ rows: result.rows })
+      }
+      return { ok: true, status: 200, json: async () => ({ results }) } as any
+    }
     try {
       const result = await execute({ sql, args: args || [] })
       return { ok: true, status: 200, json: async () => ({ rows: result.rows }) } as any

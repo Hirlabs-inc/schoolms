@@ -14,7 +14,7 @@ export default function UnauthorizedPage() {
             </div>
           </div>
           <CardTitle>Access Denied</CardTitle>
-          <CardDescription>You don't have permission to access this page</CardDescription>
+          <CardDescription>You don&apos;t have permission to access this page</CardDescription>
         </CardHeader>
         <CardContent className="flex justify-center">
           <Button asChild>

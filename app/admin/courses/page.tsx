@@ -128,7 +128,7 @@ export default function CoursesPage() {
           if (!next.includes(tid)) await removeTeacherFromCourse(formData.id, tid)
         }
       } else {
-        const created = await addItem<Course>("courses", data)
+        const created = await addItem("courses", data)
         const newId = (created as any).id || (created as any).data?.id
         if (newId && formData.teacherIds.length) {
           for (const tid of formData.teacherIds) await assignTeacherToCourse(newId, tid)

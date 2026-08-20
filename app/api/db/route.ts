@@ -20,6 +20,8 @@ const ALLOWED_TABLES = new Set([
   "payments",
   "courses",
   "teachers",
+  "classes",
+  "exams",
   "expenses",
   "income",
   "payroll_records",
@@ -122,11 +124,37 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
-  let body: { sql?: string; args?: any[] }
+  let body: { sql?: string; args?: any[]; queries?: Array<{ sql: string; args?: any[] }> }
   try {
     body = await req.json()
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 })
+  }
+
+  // Batched execution: { queries: [{ sql, args }, ...] } runs every statement in
+  // a single round trip. Each statement is validated with the same policy.
+  if (Array.isArray(body.queries)) {
+    if (body.queries.length === 0) {
+      return NextResponse.json({ results: [] })
+    }
+    const results: Array<{ rows: any[] }> = []
+    for (const q of body.queries) {
+      if (!q || typeof q.sql !== "string" || !q.sql.trim()) {
+        return NextResponse.json({ error: "Invalid query in batch" }, { status: 400 })
+      }
+      const check = isSqlAllowed(q.sql)
+      if (!check.ok) {
+        return NextResponse.json({ error: `Query rejected: ${check.reason}` }, { status: 403 })
+      }
+      const args = Array.isArray(q.args) ? q.args : []
+      try {
+        const rs = await turso.execute({ sql: q.sql, args })
+        results.push({ rows: rs.rows as any[] })
+      } catch (e: any) {
+        return NextResponse.json({ error: e?.message ?? "Query failed" }, { status: 500 })
+      }
+    }
+    return NextResponse.json({ results })
   }
 
   const sql = body.sql

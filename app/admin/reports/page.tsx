@@ -120,7 +120,10 @@ export default function ReportsPage() {
   const totalExpensesAmt = filteredExpenses.reduce((s, e) => s + Number(e.amount), 0)
   const outstandingTotal = fees.filter(f => f.status !== "PAID").reduce((s, f) => s + Number(f.balance || 0), 0)
   const totalPayroll = payrollRecords.filter(r => r.status === "PAID").reduce((s, r) => s + Number(r.amount), 0)
-  const totalOtherIncome = incomeList.reduce((s, i) => s + Number(i.amount), 0)
+  // Income records auto-created from fee payments (category FEES) duplicate the
+  // payments themselves, so exclude them to avoid double-counting revenue.
+  const otherIncomeList = incomeList.filter(i => i.category !== "FEES")
+  const totalOtherIncome = otherIncomeList.reduce((s, i) => s + Number(i.amount), 0)
   const totalAllIncome = totalIncome + totalOtherIncome
 
   // Daily income aggregation
@@ -339,8 +342,8 @@ export default function ReportsPage() {
               </CardHeader>
               <CardContent>
                 <div className="grid gap-4 md:grid-cols-4 mb-4">
-                  {["FEES", "GRANTS", "DONATIONS", "OTHER"].map((cat) => {
-                    const total = incomeList.filter(i => i.category === cat).reduce((s, i) => s + Number(i.amount), 0)
+                  {["GRANTS", "DONATIONS", "OTHER"].map((cat) => {
+                    const total = otherIncomeList.filter(i => i.category === cat).reduce((s, i) => s + Number(i.amount), 0)
                     return total > 0 ? (
                       <Card key={cat}><CardHeader className="pb-2"><CardTitle className="text-xs">{cat}</CardTitle></CardHeader><CardContent><div className="font-bold">{currency} {total.toLocaleString()}</div></CardContent></Card>
                     ) : null
@@ -351,9 +354,9 @@ export default function ReportsPage() {
                     <TableRow><TableHead>Date</TableHead><TableHead>Category</TableHead><TableHead>Description</TableHead><TableHead>Amount</TableHead></TableRow>
                   </TableHeader>
                   <TableBody>
-                    {incomeList.length === 0 ? (
+                    {otherIncomeList.length === 0 ? (
                       <TableRow><TableCell colSpan={4} className="text-center h-24 text-muted-foreground">No other income recorded</TableCell></TableRow>
-                    ) : incomeList.map(i => (
+                    ) : otherIncomeList.map(i => (
                       <TableRow key={i.id}>
                         <TableCell>{i.incomeDate}</TableCell>
                         <TableCell>{i.category}</TableCell>

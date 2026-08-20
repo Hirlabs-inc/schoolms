@@ -148,7 +148,7 @@ export default function ProgressPage() {
     <>
         {courses.filter(c => !c.duration).length > 0 && (
           <div className="mb-4 text-sm p-3 bg-yellow-50 border border-yellow-200 rounded-lg text-yellow-800">
-            <strong>Note:</strong> {courses.filter(c => !c.duration).length} course(s) are missing a <strong>duration</strong>. Auto-progress calculation requires courses to have a duration (e.g., "3 months").{' '}
+            <strong>Note:</strong> {courses.filter(c => !c.duration).length} course(s) are missing a <strong>duration</strong>. Auto-progress calculation requires courses to have a duration (e.g., &quot;3 months&quot;).{' '}
             <a href="/admin/courses" className="underline font-medium">Set durations here</a>.
           </div>
         )}

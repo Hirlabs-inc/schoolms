@@ -150,8 +150,8 @@ export default function FeesPage() {
     try {
       // Delete associated income records and payments for this fee
       const feePayments = payments.filter(p => p.feeId === id)
+      const allIncome = await getItems<Income>("income")
       for (const p of feePayments) {
-        const allIncome = await getItems<Income>("income")
         const matchedIncome = allIncome.find(i => i.receiptNumber === p.receiptNumber)
         if (matchedIncome) await deleteItem("income", matchedIncome.id)
         await deleteItem("payments", p.id)
@@ -164,17 +164,6 @@ export default function FeesPage() {
   }
 
   // --- Payment CRUD ---
-  const recalcFeeBalance = async (feeId: string) => {
-    const fee = fees.find(f => f.id === feeId)
-    if (!fee) return
-    const allPayments = [...payments]
-    const feePayments = allPayments.filter(p => p.feeId === feeId)
-    const totalPaid = feePayments.reduce((s, p) => s + Number(p.amount), 0)
-    const newBalance = Number(fee.totalFee) - totalPaid
-    const newStatus = newBalance <= 0 ? "PAID" : newBalance < Number(fee.totalFee) ? "PARTIAL" : "PENDING"
-    await updateItem("fees", feeId, { balance: Math.max(0, newBalance), status: newStatus })
-  }
-
   const openPaymentDialog = (fee: Fee) => {
     setIsEditingPayment(false)
     setSelectedFee(fee)
@@ -219,7 +208,6 @@ export default function FeesPage() {
           receiptNumber: paymentForm.receiptNumber,
           notes: paymentForm.notes,
         })
-        await recalcFeeBalance(paymentForm.feeId)
 
         // Update corresponding income record
         const existingIncome = await getItems<Income>("income")
@@ -258,8 +246,7 @@ export default function FeesPage() {
           receiptNumber,
           notes: paymentForm.notes || "",
         })
-        // Update fee balance
-        await recalcFeeBalance(paymentForm.feeId)
+        // Update fee balance (done server-side on addItem)
         // Auto-create income record
         const studentName = getStudentName(paymentForm.studentId)
         const currentUser = await getCurrentUser()
@@ -291,7 +278,6 @@ export default function FeesPage() {
         await deleteItem("income", matchedIncome.id)
       }
       await deleteItem("payments", payment.id)
-      await recalcFeeBalance(payment.feeId)
       loadData()
     } catch (error) {
       alert("Failed to delete payment")
