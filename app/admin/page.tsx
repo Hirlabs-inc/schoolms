@@ -1,11 +1,15 @@
 "use client"
 
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { getItems } from "@/lib/api"
 import type { User, Student, Payment, Expense, Fee, PayrollRecord, Income, Course, InstitutionSettings } from "@/lib/types"
 import { Users, GraduationCap, BookOpen, TrendingUp, DollarSign, CreditCard, Receipt, AlertTriangle, Loader2, Wallet, BarChart3 } from "lucide-react"
 import { useEffect, useState } from "react"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { getItems } from "@/lib/api"
+
+interface PaymentWithStudentName extends Payment {
+  studentName: string
+}
 
 export default function AdminDashboard() {
   const [stats, setStats] = useState({
@@ -17,7 +21,7 @@ export default function AdminDashboard() {
     cashBalance: 0,
     studentsInDebt: 0,
   })
-  const [recentPayments, setRecentPayments] = useState<Payment[]>([])
+  const [recentPayments, setRecentPayments] = useState<PaymentWithStudentName[]>([])
   const [recentExpenses, setRecentExpenses] = useState<Expense[]>([])
   const [currency, setCurrency] = useState("KES")
   const [courseCount, setCourseCount] = useState(0)
@@ -39,6 +43,8 @@ export default function AdminDashboard() {
         ])
         if (settings.length > 0) setCurrency(settings[0].currency || "KES")
 
+        const studentNameMap = new Map(students.map(s => [s.id, `${s.firstName || ""} ${s.lastName || ""}`.trim() || "Unknown"]))
+
         const activeStudents = students.filter(s => s.status === "ACTIVE" || !s.status)
         const totalIncome = payments.reduce((sum, p) => sum + Number(p.amount), 0) + income.filter(i => i.category !== "FEES").reduce((sum, i) => sum + Number(i.amount), 0)
         const totalExpenses = expenses.reduce((sum, e) => sum + Number(e.amount), 0)
@@ -58,8 +64,13 @@ export default function AdminDashboard() {
         })
         setCourseCount(courseCount)
 
+        const paymentWithStudentName = payments.map(p => ({
+          ...p,
+          studentName: studentNameMap.get(p.studentId) || "Unknown",
+        }))
+
         setRecentPayments(
-          payments
+          paymentWithStudentName
             .sort((a, b) => new Date(b.paymentDate || b.createdAt || "").getTime() - new Date(a.paymentDate || a.createdAt || "").getTime())
             .slice(0, 5)
         )
@@ -177,7 +188,7 @@ export default function AdminDashboard() {
                   <TableBody>
                     {recentPayments.map((p) => (
                       <TableRow key={p.id}>
-                        <TableCell className="font-medium">{p.firstName} {p.lastName}</TableCell>
+                        <TableCell className="font-medium">{p.studentName}</TableCell>
                         <TableCell>{currency} {Number(p.amount).toLocaleString()}</TableCell>
                         <TableCell>{p.paymentMethod.replace("_", " ")}</TableCell>
                         <TableCell>{p.paymentDate}</TableCell>
