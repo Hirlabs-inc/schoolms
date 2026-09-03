@@ -7,7 +7,6 @@ on:
       - '**.md'
   workflow_dispatch:
 
-# GHCR push needs packages:write; SSH deploy needs nothing extra (key in secrets)
 permissions:
   contents: read
   packages: write
@@ -43,8 +42,6 @@ jobs:
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:trainify-${{ github.sha }}
           build-args: |
             JWT_SECRET=${{ secrets.JWT_SECRET }}
-            TURSO_URL=${{ secrets.TURSO_URL }}
-            TURSO_TOKEN=${{ secrets.TURSO_TOKEN }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
