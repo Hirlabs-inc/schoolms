@@ -1,0 +1,88 @@
+name: Build & Deploy Trainify
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+  workflow_dispatch:
+
+# GHCR push needs packages:write; SSH deploy needs nothing extra (key in secrets)
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log into GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:trainify-latest
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:trainify-${{ github.sha }}
+          build-args: |
+            JWT_SECRET=${{ secrets.JWT_SECRET }}
+            TURSO_URL=${{ secrets.TURSO_URL }}
+            TURSO_TOKEN=${{ secrets.TURSO_TOKEN }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Deploy to VPS
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: root
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            set -euo pipefail
+            IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:trainify-latest"
+            CONTAINER="trainify-schoolms"
+            ENV_FILE="/data/coolify/applications/trainify-schoolms/.env"
+
+            echo "▶ Pulling latest image..."
+            docker pull "$IMAGE"
+
+            echo "▶ Stopping old container..."
+            docker stop "$CONTAINER" 2>/dev/null || true
+            docker rm "$CONTAINER" 2>/dev/null || true
+
+            echo "▶ Starting new container..."
+            docker run -d \
+              --name "$CONTAINER" \
+              --network coolify \
+              --restart unless-stopped \
+              -p 3006:3000 \
+              --env-file "$ENV_FILE" \
+              "$IMAGE"
+
+            sleep 4
+            echo "▶ Recent logs:"
+            docker logs "$CONTAINER" --tail 8
+
+            echo "▶ Health check..."
+            if curl -sf http://localhost:3006/ > /dev/null 2>&1; then
+              echo "✔ OK — trainify is live on port 3006"
+            else
+              echo "⚠ WARNING — health check failed, check logs"
+            fi
