@@ -45,8 +45,8 @@ function assertActor(actor: SessionUser | null | undefined): asserts actor is Se
 
 function assertStaffActor(actor: SessionUser | null | undefined): asserts actor is SessionUser {
   assertActor(actor)
-  if (actor.role !== "ADMIN" && actor.role !== "MANAGER") {
-    throw err(403, "Forbidden: admin or manager access required")
+  if (actor.role !== "ADMIN" && actor.role !== "MANAGER" && actor.role !== "SECRETARY") {
+    throw err(403, "Forbidden: admin, manager, or secretary access required")
   }
 }
 

@@ -23,6 +23,10 @@ function setTeacherToken() {
   localStorage.setItem("auth_token", "mock-teacher-token")
 }
 
+function setSecretaryToken() {
+  localStorage.setItem("auth_token", "mock-secretary-token")
+}
+
 function clearAuth() {
   localStorage.removeItem("auth_token")
 }
@@ -152,6 +156,21 @@ describe("RBAC - Teacher cannot create users", () => {
   it("teacher cannot create users", async () => {
     await expect(createUser({
       email: "bad@t.com", password: "p", role: "STUDENT",
+      firstName: "B", lastName: "D",
+    })).rejects.toThrow("Forbidden: insufficient role")
+  })
+})
+
+describe("RBAC - Secretary cannot use generic createUser", () => {
+  beforeEach(() => {
+    resetDb()
+    tables.profiles.push({ id: "sec-1", email: "s@t.com", password: "h", role: "SECRETARY", firstName: "S", lastName: "E" })
+    setSecretaryToken()
+  })
+
+  it("secretary cannot use createUser (requires ADMIN)", async () => {
+    await expect(createUser({
+      email: "bad@t.com", password: "p", role: "TEACHER",
       firstName: "B", lastName: "D",
     })).rejects.toThrow("Forbidden: insufficient role")
   })

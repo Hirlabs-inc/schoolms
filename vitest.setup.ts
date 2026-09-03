@@ -329,6 +329,11 @@ vi.mock("jose", () => ({
         payload: { sub: "tch-1", role: "TEACHER", email: "teacher@test.com", firstName: "Teach", lastName: "Er" },
       }
     }
+    if (stored === "mock-secretary-token") {
+      return {
+        payload: { sub: "sec-1", role: "SECRETARY", email: "secretary@test.com", firstName: "Sec", lastName: "Retary" },
+      }
+    }
     return {
       payload: { sub: "admin-1", role: "ADMIN", email: "admin@school.com", firstName: "Admin", lastName: "User" },
     }
@@ -379,6 +384,10 @@ globalThis.fetch = vi.fn(async (input: any, init?: any) => {
     }
     if (stored === "mock-teacher-token") {
       const user = { id: "tch-1", role: "TEACHER", email: "teacher@test.com", firstName: "Teach", lastName: "Er" }
+      return { ok: true, status: 200, json: async () => ({ user }) } as any
+    }
+    if (stored === "mock-secretary-token") {
+      const user = { id: "sec-1", role: "SECRETARY", email: "secretary@test.com", firstName: "Sec", lastName: "Retary" }
       return { ok: true, status: 200, json: async () => ({ user }) } as any
     }
     const user = { id: "admin-1", role: "ADMIN", email: "admin@school.com", firstName: "Admin", lastName: "User" }
