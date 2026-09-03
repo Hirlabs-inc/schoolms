@@ -94,3 +94,4 @@ lib/__tests__/  Vitest test suite
 - All queries are parameterized (no string interpolation of user input).
 - Login is rate-limited (5 attempts / 15 min per email+IP) and validates input.
 - `.env.local` and `*.pem` are gitignored.
+// ci trigger
