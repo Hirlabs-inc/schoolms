@@ -17,49 +17,48 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { getItems, deleteItem, createUser, generateStudentNumber, updateItem, addItem, deleteStudent } from "@/lib/api"
+import { adminCreateUser, adminDeleteUser, adminUpdateUser, getCurrentUser, getItems } from "@/lib/api"
 import { AuthGuard } from "@/components/auth-guard"
-import type { User, UserRole, Student, Teacher, Class } from "@/lib/types"
-import { Users, Plus, Trash2, Download, Loader2, Pencil } from "lucide-react"
+import type { User, UserRole, Teacher } from "@/lib/types"
+import { Plus, Trash2, Download, Loader2, Pencil } from "lucide-react"
 import { useEffect, useState } from "react"
+
+const STAFF_ROLES: UserRole[] = ["ADMIN", "TEACHER", "SECRETARY", "MANAGER"]
+
+const emptyForm = {
+  firstName: "",
+  lastName: "",
+  email: "",
+  password: "",
+  role: "TEACHER" as UserRole,
+  staffId: "",
+  department: "",
+  specialization: "",
+}
 
 export default function UsersPage() {
   const [users, setUsers] = useState<User[]>([])
-  const [classes, setClasses] = useState<Class[]>([])
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null)
+  const [isAdmin, setIsAdmin] = useState(false)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [editingUser, setEditingUser] = useState<User | null>(null)
-  const [formData, setFormData] = useState({
-    firstName: "",
-    lastName: "",
-    email: "",
-    password: "",
-    role: "ADMIN" as UserRole,
-    studentNumber: "",
-    enrollmentYear: new Date().getFullYear(),
-    classId: "",
-    academicYear: 1,
-    parentPhone: "",
-    staffId: "",
-    department: "",
-    specialization: "",
-    createLoginAccount: true,
-  })
+  const [formData, setFormData] = useState(emptyForm)
 
   useEffect(() => {
     loadData()
   }, [])
 
+  // The users page manages STAFF accounts (ADMIN / MANAGER / SECRETARY /
+  // TEACHER). Students are managed on the Students page.
   const loadData = async () => {
     setIsLoading(true)
     try {
-      const [usersData, classesData] = await Promise.all([
-        getItems<User>("users"),
-        getItems<Class>("classes")
-      ])
-      setUsers(usersData)
-      setClasses(classesData)
+      const [allUsers, me] = await Promise.all([getItems<User>("users"), getCurrentUser()])
+      setUsers(allUsers.filter((u) => u.role !== "STUDENT"))
+      setCurrentUserId(me?.id ?? null)
+      setIsAdmin(me?.role === "ADMIN")
     } catch (error) {
       console.error("Failed to load data", error)
     } finally {
@@ -67,51 +66,35 @@ export default function UsersPage() {
     }
   }
 
+  const canManage = (user: User) => isAdmin || user.role !== "ADMIN"
+
+  const resetForm = () => setFormData(emptyForm)
+
   const handleEdit = async (user: User) => {
     setEditingUser(user)
 
-    // Fetch additional data based on role
-    let additionalData: any = {}
-
-    if (user.role === "STUDENT") {
-      const students = await getItems<Student>("students")
-      const student = students.find(s => s.id === user.id)
-      if (student) {
-        additionalData = {
-          studentNumber: student.studentNumber,
-          classId: student.classId,
-          academicYear: student.academicYear,
-          parentPhone: student.parentPhone || "",
-        }
-      }
-    } else if (user.role === "TEACHER") {
+    let extra: Record<string, string> = {}
+    if (user.role === "TEACHER") {
       const teachers = await getItems<Teacher>("teachers")
-      const teacher = teachers.find(t => t.id === user.id)
+      const teacher = teachers.find((t) => t.id === user.id)
       if (teacher) {
-        additionalData = {
-          staffId: teacher.staffId,
-          department: teacher.department,
-          specialization: teacher.specialization,
+        extra = {
+          staffId: teacher.staffId || "",
+          department: teacher.department || "",
+          specialization: teacher.specialization || "",
         }
       }
     }
 
     setFormData({
-      firstName: user.firstName,
-      lastName: user.lastName,
-      email: user.email,
-      password: "", // Don't populate password for security
+      firstName: user.firstName || "",
+      lastName: user.lastName || "",
+      email: user.email || "",
+      password: "",
       role: user.role,
-      enrollmentYear: new Date().getFullYear(),
-      ...additionalData,
-      classId: additionalData.classId || "",
-      academicYear: additionalData.academicYear || 1,
-      studentNumber: additionalData.studentNumber || "",
-      parentPhone: additionalData.parentPhone || "",
-      staffId: additionalData.staffId || "",
-      department: additionalData.department || "",
-      specialization: additionalData.specialization || "",
-      createLoginAccount: true,
+      staffId: extra.staffId || "",
+      department: extra.department || "",
+      specialization: extra.specialization || "",
     })
     setIsDialogOpen(true)
   }
@@ -121,184 +104,87 @@ export default function UsersPage() {
     setIsSubmitting(true)
 
     try {
+      const password = formData.password
+      if (password && password.length < 6) {
+        throw new Error("Password must be at least 6 characters")
+      }
+
       if (editingUser) {
-        // Update existing user
-        console.log("Updating user profile:", editingUser.id, {
+        const patch: Record<string, any> = {
           firstName: formData.firstName,
           lastName: formData.lastName,
           email: formData.email,
-        })
-
-        try {
-          await updateItem("users", editingUser.id, {
-            firstName: formData.firstName,
-            lastName: formData.lastName,
-            email: formData.email,
-          })
-          console.log("Profile updated successfully")
-        } catch (profileError: any) {
-          console.error("Failed to update profile:", profileError)
-          throw new Error(`Failed to update profile: ${profileError.message || profileError}`)
+          role: formData.role,
         }
-
-        // Update role-specific data
-        if (formData.role === "STUDENT") {
-          console.log("Updating student data:", editingUser.id, {
-            classId: formData.classId,
-            academicYear: formData.academicYear,
-            parentPhone: formData.parentPhone,
-          })
-
-          try {
-            // First check if student record exists
-            const students = await getItems<Student>("students")
-            const studentExists = students.some(s => s.id === editingUser.id)
-
-            if (studentExists) {
-              await updateItem("students", editingUser.id, {
-                classId: formData.classId,
-                academicYear: formData.academicYear,
-                parentPhone: formData.parentPhone,
-              })
-              console.log("Student data updated successfully")
-            } else {
-              // Create student record if it doesn't exist
-              console.log("Student record doesn't exist, creating it...")
-              await addItem("students", {
-                id: editingUser.id,
-                studentNumber: generateStudentNumber(),
-                enrollmentYear: new Date().getFullYear(),
-                classId: formData.classId,
-                academicYear: formData.academicYear,
-                parentPhone: formData.parentPhone,
-              })
-              console.log("Student record created successfully")
-            }
-          } catch (studentError: any) {
-            console.error("Failed to update student data:", studentError)
-            throw new Error(`Failed to update student data: ${studentError.message || studentError}`)
-          }
-        } else if (formData.role === "TEACHER") {
-          console.log("Updating teacher data:", editingUser.id, {
-            staffId: formData.staffId,
-            department: formData.department,
-            specialization: formData.specialization,
-          })
-
-          try {
-            // First check if teacher record exists
-            const teachers = await getItems<Teacher>("teachers")
-            const teacherExists = teachers.some(t => t.id === editingUser.id)
-
-            if (teacherExists) {
-              await updateItem("teachers", editingUser.id, {
-                staffId: formData.staffId,
-                department: formData.department,
-                specialization: formData.specialization,
-                firstName: formData.firstName,
-                lastName: formData.lastName,
-              })
-              console.log("Teacher data updated successfully")
-            } else {
-              // Create teacher record if it doesn't exist
-              console.log("Teacher record doesn't exist, creating it...")
-              await addItem("teachers", {
-                id: editingUser.id,
-                staffId: formData.staffId,
-                department: formData.department,
-                specialization: formData.specialization,
-              })
-              console.log("Teacher record created successfully")
-            }
-          } catch (teacherError: any) {
-            console.error("Failed to update teacher data:", teacherError)
-            throw new Error(`Failed to update teacher data: ${teacherError.message || teacherError}`)
-          }
+        if (password) patch.password = password
+        if (formData.role === "TEACHER") {
+          patch.staffId = formData.staffId
+          patch.department = formData.department
+          patch.specialization = formData.specialization
         }
-
+        await adminUpdateUser(editingUser.id, patch)
         alert("User updated successfully!")
       } else {
-        // Create new user
-        const newUser = { ...formData }
-        if (newUser.role === "STUDENT") {
-          newUser.studentNumber = generateStudentNumber()
+        if (!password) throw new Error("Password is required")
+        const payload: Record<string, any> = {
+          firstName: formData.firstName,
+          lastName: formData.lastName,
+          email: formData.email,
+          password,
+          role: formData.role,
         }
-
-        await createUser(newUser)
+        if (formData.role === "TEACHER") {
+          payload.staffId = formData.staffId
+          payload.department = formData.department
+          payload.specialization = formData.specialization
+        }
+        await adminCreateUser(payload)
         alert("User created successfully!")
       }
 
       setIsDialogOpen(false)
       setEditingUser(null)
-      setFormData({
-        firstName: "",
-        lastName: "",
-        email: "",
-        password: "",
-        role: "ADMIN",
-        studentNumber: "",
-        enrollmentYear: new Date().getFullYear(),
-        classId: "",
-        academicYear: 1,
-        parentPhone: "",
-        staffId: "",
-        department: "",
-        specialization: "",
-        createLoginAccount: true,
-      })
+      resetForm()
       loadData()
     } catch (error: any) {
-      console.error(editingUser ? "Failed to update user" : "Failed to create user", error)
-      const errorMessage = error.message || (editingUser ? "Failed to update user. Please make sure you've run the RLS policy migration (fix_rls_policies.sql)" : "Failed to create user")
-      alert(errorMessage)
+      const context = editingUser ? "update" : "create"
+      console.error(`Failed to ${context} user`, error)
+      alert(error.message || `Failed to ${context} user`)
     } finally {
       setIsSubmitting(false)
     }
   }
 
-  const handleDelete = async (id: string) => {
-    const user = users.find(u => u.id === id)
-    const isStudent = user?.role === "STUDENT"
-    const confirmMsg = isStudent
-      ? "Delete this student? This will remove ALL their records — fees, attendance, exam results, enrollments. This cannot be undone."
-      : "Are you sure you want to delete this user?"
-    if (confirm(confirmMsg)) {
-      try {
-        if (isStudent) {
-          await deleteStudent(id)
-        } else {
-          await deleteItem("users", id)
-        }
-        loadData()
-      } catch (error) {
-        console.error("Failed to delete user", error)
-        alert("Failed to delete user: " + (error instanceof Error ? error.message : "Unknown error"))
-      }
+  const handleDelete = async (user: User) => {
+    const name = `${user.firstName} ${user.lastName}`.trim() || user.email
+    const msg =
+      user.role === "TEACHER"
+        ? `Delete teacher "${name}"? This also removes their course assignments, contracts, payroll and commission records. This cannot be undone.`
+        : `Are you sure you want to delete ${name} (${user.role})? This cannot be undone.`
+    if (!confirm(msg)) return
+    try {
+      await adminDeleteUser(user.id)
+      loadData()
+    } catch (error: any) {
+      console.error("Failed to delete user", error)
+      alert(error.message || "Failed to delete user")
     }
   }
 
   const handleExport = () => {
-    // For export, we might need more details (like student class name).
-    // Currently 'users' state only has profile data.
-    // We'd need to fetch full student/teacher details or join them.
-    // For now, let's export what we have in the table.
-
-    const data = users.map(user => ({
+    const data = users.map((user) => ({
       FirstName: user.firstName,
       LastName: user.lastName,
       Email: user.email,
       Role: user.role,
     }))
-
     if (data.length === 0) {
       alert("No users to export")
       return
     }
-
     const headers = Object.keys(data[0]).join(",")
-    const rows = data.map(row => Object.values(row).join(","))
+    const rows = data.map((row) => Object.values(row).join(","))
     const csvContent = "data:text/csv;charset=utf-8," + headers + "\n" + rows.join("\n")
-
     const encodedUri = encodeURI(csvContent)
     const link = document.createElement("a")
     link.setAttribute("href", encodedUri)
@@ -308,251 +194,192 @@ export default function UsersPage() {
     document.body.removeChild(link)
   }
 
+  const isSelf = (user: User) => user.id === currentUserId
+
+  const editingSelf = !!editingUser && editingUser.id === currentUserId
+
   return (
     <AuthGuard allowedRoles={["ADMIN", "MANAGER"]}>
-    <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle>Users</CardTitle>
-                <CardDescription>Manage system users and their roles</CardDescription>
-              </div>
-              <div className="flex gap-2">
-                <Button variant="outline" onClick={handleExport}>
-                  <Download className="h-4 w-4 mr-2" />
-                  Export CSV
-                </Button>
-                <Dialog open={isDialogOpen} onOpenChange={(open) => {
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>Users</CardTitle>
+              <CardDescription>Manage staff accounts and their roles</CardDescription>
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={handleExport}>
+                <Download className="h-4 w-4 mr-2" />
+                Export CSV
+              </Button>
+              <Dialog
+                open={isDialogOpen}
+                onOpenChange={(open) => {
                   setIsDialogOpen(open)
                   if (!open) {
                     setEditingUser(null)
-                    setFormData({
-                      firstName: "",
-                      lastName: "",
-                      email: "",
-                      password: "",
-                      role: "ADMIN",
-                      studentNumber: "",
-                      enrollmentYear: new Date().getFullYear(),
-                      classId: "",
-                      academicYear: 1,
-                      parentPhone: "",
-                      staffId: "",
-                      department: "",
-                      specialization: "",
-                      createLoginAccount: true,
-                    })
+                    resetForm()
                   }
-                }}>
-                  <DialogTrigger asChild>
-                    <Button>
-                      <Plus className="h-4 w-4 mr-2" />
-                      Add User
-                    </Button>
-                  </DialogTrigger>
-                  <DialogContent className="max-h-[90vh] overflow-y-auto">
-                    <form onSubmit={handleSubmit}>
-                      <DialogHeader>
-                        <DialogTitle>{editingUser ? "Edit User" : "Add New User"}</DialogTitle>
-                        <DialogDescription>
-                          {editingUser ? "Update user information" : "Create a new user account"}
-                        </DialogDescription>
-                      </DialogHeader>
-                      <div className="grid gap-4 py-4">
-                        <div className="grid gap-2">
-                          <Label htmlFor="role">Role</Label>
-                            <Select
-                            value={formData.role}
-                            onValueChange={(value: UserRole) => setFormData({
-                              ...formData, role: value,
-                              studentNumber: "", classId: "", academicYear: 1, parentPhone: "",
-                              staffId: "", department: "", specialization: "",
-                            })}
-                            disabled={!!editingUser}
-                          >
-                            <SelectTrigger>
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="ADMIN">Admin</SelectItem>
-                              <SelectItem value="TEACHER">Teacher</SelectItem>
-                              <SelectItem value="SECRETARY">Secretary</SelectItem>
-                              <SelectItem value="MANAGER">Manager</SelectItem>
-                            </SelectContent>
-                          </Select>
-                          {editingUser && (
-                            <p className="text-xs text-muted-foreground">Role cannot be changed after creation</p>
-                          )}
-                        </div>
-                        <div className="grid gap-2">
-                          <Label htmlFor="firstName">First Name</Label>
-                          <Input
-                            id="firstName"
-                            value={formData.firstName}
-                            onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
-                            required
-                          />
-                        </div>
-                        <div className="grid gap-2">
-                          <Label htmlFor="lastName">Last Name</Label>
-                          <Input
-                            id="lastName"
-                            value={formData.lastName}
-                            onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
-                            required
-                          />
-                        </div>
-                        <div className="grid gap-2">
-                          <Label htmlFor="email">Email</Label>
-                          <Input
-                            id="email"
-                            type="email"
-                            value={formData.email}
-                            onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                            required
-                          />
-                        </div>
-                        <div className="grid gap-2">
-                          <Label htmlFor="password">{editingUser ? "New Password (leave blank to keep current)" : "Password"}</Label>
-                          <Input
-                            id="password"
-                            type="password"
-                            value={formData.password}
-                            onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                            required={!editingUser}
-                            placeholder={editingUser ? "Leave blank to keep current password" : ""}
-                          />
-                        </div>
-
-                        {formData.role === "STUDENT" && (
-                          <>
-                            {/* Student Number is auto-generated */}
-                            <div className="grid gap-2">
-                              <Label htmlFor="academicYear">Grade Level</Label>
-                              <Select
-                                value={formData.academicYear.toString()}
-                                onValueChange={(value) =>
-                                  setFormData({ ...formData, academicYear: Number.parseInt(value), classId: "" })
-                                }
-                              >
-                                <SelectTrigger>
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {Array.from({ length: 12 }, (_, i) => i + 1).map((grade) => (
-                                    <SelectItem key={grade} value={grade.toString()}>
-                                      Grade {grade}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                            </div>
-                            <div className="grid gap-2">
-                              <Label htmlFor="classId">Class</Label>
-                              <Select
-                                value={formData.classId}
-                                onValueChange={(value) => setFormData({ ...formData, classId: value })}
-                              >
-                                <SelectTrigger>
-                                  <SelectValue placeholder="Select a class" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {classes
-                                    .filter((cls) => cls.gradeLevel === formData.academicYear)
-                                    .map((cls) => (
-                                      <SelectItem key={cls.id} value={cls.id}>
-                                        {cls.name}
-                                      </SelectItem>
-                                    ))}
-                                </SelectContent>
-                              </Select>
-                            </div>
-                            <div className="grid gap-2">
-                              <Label htmlFor="parentPhone">Parent Phone Number</Label>
-                              <Input
-                                id="parentPhone"
-                                type="tel"
-                                value={formData.parentPhone}
-                                onChange={(e) => setFormData({ ...formData, parentPhone: e.target.value })}
-                                placeholder="+252 XX XXX XXXX"
-                                required
-                              />
-                            </div>
-                          </>
+                }}
+              >
+                <DialogTrigger asChild>
+                  <Button>
+                    <Plus className="h-4 w-4 mr-2" />
+                    Add User
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="max-h-[90vh] overflow-y-auto">
+                  <form onSubmit={handleSubmit}>
+                    <DialogHeader>
+                      <DialogTitle>{editingUser ? "Edit User" : "Add New User"}</DialogTitle>
+                      <DialogDescription>
+                        {editingUser ? "Update staff account information" : "Create a new staff account"}
+                      </DialogDescription>
+                    </DialogHeader>
+                    <div className="grid gap-4 py-4">
+                      <div className="grid gap-2">
+                        <Label htmlFor="role">Role</Label>
+                        <Select
+                          value={formData.role}
+                          onValueChange={(value: UserRole) =>
+                            setFormData({ ...formData, role: value })
+                          }
+                          disabled={editingSelf || (editingUser?.role === "ADMIN" && !isAdmin)}
+                        >
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {STAFF_ROLES.filter((r) => r !== "ADMIN" || isAdmin).map((r) => (
+                              <SelectItem key={r} value={r}>
+                                {r.charAt(0) + r.slice(1).toLowerCase()}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        {editingSelf && (
+                          <p className="text-xs text-muted-foreground">You cannot change your own role.</p>
                         )}
-
-                        {formData.role === "TEACHER" && (
-                          <>
-                            <div className="grid gap-2">
-                              <Label htmlFor="staffId">Staff ID</Label>
-                              <Input
-                                id="staffId"
-                                value={formData.staffId}
-                                onChange={(e) => setFormData({ ...formData, staffId: e.target.value })}
-                                placeholder="e.g., TCH001"
-                                required
-                              />
-                            </div>
-                            <div className="grid gap-2">
-                              <Label htmlFor="department">Department</Label>
-                              <Input
-                                id="department"
-                                value={formData.department}
-                                onChange={(e) => setFormData({ ...formData, department: e.target.value })}
-                                placeholder="e.g., Science"
-                                required
-                              />
-                            </div>
-                            <div className="grid gap-2">
-                              <Label htmlFor="specialization">Specialization</Label>
-                              <Input
-                                id="specialization"
-                                value={formData.specialization}
-                                onChange={(e) => setFormData({ ...formData, specialization: e.target.value })}
-                                placeholder="e.g., Mathematics & Physics"
-                                required
-                              />
-                            </div>
-                          </>
+                        {editingUser?.role === "ADMIN" && !isAdmin && (
+                          <p className="text-xs text-muted-foreground">Only administrators can edit admin accounts.</p>
                         )}
                       </div>
-                      <DialogFooter>
-                        <Button type="submit" disabled={isSubmitting}>
-                          {isSubmitting ? (
-                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          ) : editingUser ? (
-                            "Update User"
-                          ) : (
-                            "Create User"
-                          )}
-                        </Button>
-                      </DialogFooter>
-                    </form>
-                  </DialogContent>
-                </Dialog>
-              </div>
+                      <div className="grid gap-2">
+                        <Label htmlFor="firstName">First Name</Label>
+                        <Input
+                          id="firstName"
+                          value={formData.firstName}
+                          onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
+                          required
+                        />
+                      </div>
+                      <div className="grid gap-2">
+                        <Label htmlFor="lastName">Last Name</Label>
+                        <Input
+                          id="lastName"
+                          value={formData.lastName}
+                          onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
+                          required
+                        />
+                      </div>
+                      <div className="grid gap-2">
+                        <Label htmlFor="email">Email</Label>
+                        <Input
+                          id="email"
+                          type="email"
+                          value={formData.email}
+                          onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                          required
+                        />
+                      </div>
+                      <div className="grid gap-2">
+                        <Label htmlFor="password">
+                          {editingUser ? "New Password (leave blank to keep current)" : "Password"}
+                        </Label>
+                        <Input
+                          id="password"
+                          type="password"
+                          value={formData.password}
+                          onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                          required={!editingUser}
+                          autoComplete="new-password"
+                          placeholder={editingUser ? "Leave blank to keep current" : "At least 6 characters"}
+                        />
+                      </div>
+
+                      {formData.role === "TEACHER" && (
+                        <>
+                          <div className="grid gap-2">
+                            <Label htmlFor="staffId">Staff ID</Label>
+                            <Input
+                              id="staffId"
+                              value={formData.staffId}
+                              onChange={(e) => setFormData({ ...formData, staffId: e.target.value })}
+                              placeholder="e.g., TCH001 (auto-generated if blank)"
+                            />
+                          </div>
+                          <div className="grid gap-2">
+                            <Label htmlFor="department">Department</Label>
+                            <Input
+                              id="department"
+                              value={formData.department}
+                              onChange={(e) => setFormData({ ...formData, department: e.target.value })}
+                              placeholder="e.g., ICT"
+                            />
+                          </div>
+                          <div className="grid gap-2">
+                            <Label htmlFor="specialization">Specialization</Label>
+                            <Input
+                              id="specialization"
+                              value={formData.specialization}
+                              onChange={(e) => setFormData({ ...formData, specialization: e.target.value })}
+                              placeholder="e.g., Web Development"
+                            />
+                          </div>
+                        </>
+                      )}
+                    </div>
+                    <DialogFooter>
+                      <Button type="submit" disabled={isSubmitting}>
+                        {isSubmitting ? (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : editingUser ? (
+                          "Update User"
+                        ) : (
+                          "Create User"
+                        )}
+                      </Button>
+                    </DialogFooter>
+                  </form>
+                </DialogContent>
+              </Dialog>
             </div>
-          </CardHeader>
-          <CardContent>
-            {isLoading ? (
-              <div className="flex justify-center py-8">
-                <Loader2 className="h-8 w-8 animate-spin text-primary" />
-              </div>
-            ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Name</TableHead>
-                    <TableHead>Email</TableHead>
-                    <TableHead>Role</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {users.map((user) => (
+          </div>
+        </CardHeader>
+        <CardContent>
+          {isLoading ? (
+            <div className="flex justify-center py-8">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Email</TableHead>
+                  <TableHead>Role</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {users.map((user) => {
+                  const self = isSelf(user)
+                  const manageable = canManage(user)
+                  return (
                     <TableRow key={user.id}>
                       <TableCell className="font-medium">
                         {user.firstName} {user.lastName}
+                        {self && <span className="ml-2 text-xs text-muted-foreground">(you)</span>}
                       </TableCell>
                       <TableCell>{user.email}</TableCell>
                       <TableCell>
@@ -562,21 +389,41 @@ export default function UsersPage() {
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-2">
-                          <Button variant="ghost" size="icon" onClick={() => handleEdit(user)}>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            title="Edit"
+                            disabled={!manageable}
+                            onClick={() => handleEdit(user)}
+                          >
                             <Pencil className="h-4 w-4" />
                           </Button>
-                          <Button variant="ghost" size="icon" onClick={() => handleDelete(user.id)}>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            title={self ? "You cannot delete your own account" : "Delete"}
+                            disabled={self || !manageable}
+                            onClick={() => handleDelete(user)}
+                          >
                             <Trash2 className="h-4 w-4 text-destructive" />
                           </Button>
                         </div>
                       </TableCell>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            )}
-          </CardContent>
-        </Card>
+                  )
+                })}
+                {users.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">
+                      No staff accounts yet. Click &quot;Add User&quot; to create one.
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
     </AuthGuard>
   )
 }

@@ -51,6 +51,55 @@ export async function updatePassword(newPassword: string) {
   return true
 }
 
+// --- Admin user management (staff accounts) ---
+// Talks to the dedicated /api/admin/users endpoints which enforce role rules
+// and cascading deletes server-side (bypasses the generic /api/db SQL policy).
+
+async function apiRequest<T = any>(path: string, method: string, body?: any): Promise<T> {
+  const token = getStoredToken()
+  const res = await fetch(path, {
+    method,
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  })
+  let data: any = {}
+  try {
+    data = await res.json()
+  } catch {
+    // non-JSON response — fall through to status-based error
+  }
+  if (!res.ok) {
+    throw new Error(data?.error || `Request failed (${res.status})`)
+  }
+  return data as T
+}
+
+export function adminCreateUser(input: Record<string, any>) {
+  return apiRequest("/api/admin/users", "POST", input)
+}
+
+export function adminUpdateUser(id: string, patch: Record<string, any>) {
+  return apiRequest(`/api/admin/users/${encodeURIComponent(id)}`, "PATCH", patch)
+}
+
+export function adminDeleteUser(id: string) {
+  return apiRequest(`/api/admin/users/${encodeURIComponent(id)}`, "DELETE")
+}
+
+// Self-service profile update for the logged-in user (name/email/password).
+export async function updateMyProfile(input: {
+  firstName?: string
+  lastName?: string
+  email?: string
+  currentPassword?: string
+  newPassword?: string
+}): Promise<{ success: boolean; user: any }> {
+  return apiRequest("/api/auth/me", "PATCH", input)
+}
+
 // --- Generic CRUD ---
 
 const TABLE_MAP: Record<string, string> = {

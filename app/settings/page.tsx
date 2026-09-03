@@ -9,20 +9,28 @@ import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { getCurrentUser, updatePassword, getItems, upsertItem } from "@/lib/api"
+import { updateMyProfile, getItems, upsertItem } from "@/lib/api"
 import type { InstitutionSettings } from "@/lib/types"
-import { Settings, Loader2, CheckCircle, AlertCircle, LayoutDashboard, Building2, KeyRound } from "lucide-react"
+import { Settings, Loader2, CheckCircle, AlertCircle, LayoutDashboard, Building2, UserRound } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
+import { useUser } from "@/contexts/user-context"
 
 export default function SettingsPage() {
-    const [user, setUser] = useState<any>(null)
+    const { user, refreshUser } = useUser()
     const [newPassword, setNewPassword] = useState("")
     const [confirmPassword, setConfirmPassword] = useState("")
+    const [currentPassword, setCurrentPassword] = useState("")
     const [isLoading, setIsLoading] = useState(false)
     const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null)
     const { toast } = useToast()
 
-    // Institution settings
+    // Editable profile fields.
+    const [profileForm, setProfileForm] = useState({ firstName: "", lastName: "", email: "" })
+    const [profileCurrentPassword, setProfileCurrentPassword] = useState("")
+    const [isSavingProfile, setIsSavingProfile] = useState(false)
+    const [profileMessage, setProfileMessage] = useState<{ type: "success" | "error"; text: string } | null>(null)
+
+    // Institution settings (admin only)
     const [instSettings, setInstSettings] = useState<InstitutionSettings>({
         id: "main",
         name: "Trainify Technology Training Institute",
@@ -36,21 +44,61 @@ export default function SettingsPage() {
     const [settingsMessage, setSettingsMessage] = useState<{ type: "success" | "error"; text: string } | null>(null)
 
     useEffect(() => {
-        loadData()
-    }, [])
+        if (!user) return
+        setProfileForm({
+            firstName: user.firstName || "",
+            lastName: user.lastName || "",
+            email: user.email || "",
+        })
+        if (user.role === "ADMIN") {
+            getItems<InstitutionSettings>("institutionSettings")
+                .then((settings) => {
+                    if (settings.length > 0) setInstSettings(settings[0])
+                })
+                .catch(() => {})
+        }
+    }, [user])
 
-    const loadData = async () => {
-        const currentUser = await getCurrentUser()
-        setUser(currentUser)
-        if (!currentUser) return
+    const handleProfileSave = async (e: React.FormEvent) => {
+        e.preventDefault()
+        setProfileMessage(null)
 
-        try {
-            const settings = await getItems<InstitutionSettings>("institutionSettings")
-            if (settings.length > 0) {
-                setInstSettings(settings[0])
+        const firstName = profileForm.firstName.trim()
+        const lastName = profileForm.lastName.trim()
+        const email = profileForm.email.trim()
+        if (!firstName || !lastName) {
+            setProfileMessage({ type: "error", text: "First and last name are required" })
+            return
+        }
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+            setProfileMessage({ type: "error", text: "Please enter a valid email address" })
+            return
+        }
+
+        const emailChanged = !!user && email.toLowerCase() !== (user.email || "").toLowerCase()
+        const patch: any = { firstName, lastName, email }
+        if (emailChanged) {
+            if (!profileCurrentPassword) {
+                setProfileMessage({ type: "error", text: "Enter your current password to change your email" })
+                return
             }
-        } catch (error) {
-            console.error("Failed to load settings", error)
+            patch.currentPassword = profileCurrentPassword
+        }
+
+        setIsSavingProfile(true)
+        try {
+            const res = await updateMyProfile(patch)
+            if (res.user) {
+                try { localStorage.setItem("currentUser", JSON.stringify(res.user)) } catch {}
+                await refreshUser()
+            }
+            setProfileMessage({ type: "success", text: "Profile updated successfully" })
+            setProfileCurrentPassword("")
+            toast({ title: "Success", description: "Your profile has been updated." })
+        } catch (error: any) {
+            setProfileMessage({ type: "error", text: error.message || "Failed to update profile" })
+        } finally {
+            setIsSavingProfile(false)
         }
     }
 
@@ -58,11 +106,14 @@ export default function SettingsPage() {
         e.preventDefault()
         setMessage(null)
 
+        if (!currentPassword) {
+            setMessage({ type: "error", text: "Enter your current password" })
+            return
+        }
         if (newPassword !== confirmPassword) {
             setMessage({ type: "error", text: "Passwords do not match" })
             return
         }
-
         if (newPassword.length < 6) {
             setMessage({ type: "error", text: "Password must be at least 6 characters long" })
             return
@@ -70,14 +121,14 @@ export default function SettingsPage() {
 
         setIsLoading(true)
         try {
-            await updatePassword(newPassword)
+            await updateMyProfile({ currentPassword, newPassword })
             setMessage({ type: "success", text: "Password updated successfully" })
             setNewPassword("")
             setConfirmPassword("")
+            setCurrentPassword("")
             toast({ title: "Success", description: "Your password has been updated." })
         } catch (error: any) {
             setMessage({ type: "error", text: error.message || "Failed to update password" })
-            toast({ title: "Error", description: error.message || "Failed to update password", variant: "destructive" })
         } finally {
             setIsLoading(false)
         }
@@ -102,7 +153,10 @@ export default function SettingsPage() {
     const getBackLink = () => {
         if (!user) return "/"
         switch (user.role) {
-            case "ADMIN": return "/admin"
+            case "ADMIN":
+            case "MANAGER":
+            case "SECRETARY":
+                return "/admin"
             case "TEACHER": return "/teacher"
             case "STUDENT": return "/student"
             default: return "/"
@@ -114,25 +168,27 @@ export default function SettingsPage() {
         { name: "Settings", href: "/settings", icon: Settings },
     ]
 
+    const isAdmin = user?.role === "ADMIN"
+
     return (
-        <AuthGuard allowedRoles={["ADMIN", "MANAGER"]}>
+        <AuthGuard>
             <DashboardLayout navigation={navigation} title="Settings">
                 <div className="max-w-2xl mx-auto">
-                    <Tabs defaultValue={user?.role === "ADMIN" ? "institution" : "account"}>
+                    <Tabs defaultValue={isAdmin ? "institution" : "account"}>
                         <TabsList className="mb-4">
-                            {user?.role === "ADMIN" && (
+                            {isAdmin && (
                                 <TabsTrigger value="institution">
                                     <Building2 className="h-4 w-4 mr-2" />
                                     Institution
                                 </TabsTrigger>
                             )}
                             <TabsTrigger value="account">
-                                <KeyRound className="h-4 w-4 mr-2" />
+                                <UserRound className="h-4 w-4 mr-2" />
                                 Account
                             </TabsTrigger>
                         </TabsList>
 
-                        {user?.role === "ADMIN" && (
+                        {isAdmin && (
                             <TabsContent value="institution">
                                 <Card>
                                     <CardHeader>
@@ -219,47 +275,105 @@ export default function SettingsPage() {
                                         <CardTitle>Profile Information</CardTitle>
                                         <CardDescription>Your personal account details</CardDescription>
                                     </CardHeader>
-                                    <CardContent className="space-y-4">
-                                        <div className="grid grid-cols-2 gap-4">
-                                            <div className="space-y-2">
-                                                <Label>First Name</Label>
-                                                <Input value={user?.firstName || ""} disabled />
+                                    <CardContent>
+                                        <form onSubmit={handleProfileSave} className="space-y-4">
+                                            <div className="grid grid-cols-2 gap-4">
+                                                <div className="space-y-2">
+                                                    <Label htmlFor="firstName">First Name</Label>
+                                                    <Input
+                                                        id="firstName"
+                                                        value={profileForm.firstName}
+                                                        onChange={(e) => setProfileForm({ ...profileForm, firstName: e.target.value })}
+                                                        required
+                                                    />
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <Label htmlFor="lastName">Last Name</Label>
+                                                    <Input
+                                                        id="lastName"
+                                                        value={profileForm.lastName}
+                                                        onChange={(e) => setProfileForm({ ...profileForm, lastName: e.target.value })}
+                                                        required
+                                                    />
+                                                </div>
                                             </div>
                                             <div className="space-y-2">
-                                                <Label>Last Name</Label>
-                                                <Input value={user?.lastName || ""} disabled />
+                                                <Label htmlFor="email">Email Address</Label>
+                                                <Input
+                                                    id="email"
+                                                    type="email"
+                                                    value={profileForm.email}
+                                                    onChange={(e) => setProfileForm({ ...profileForm, email: e.target.value })}
+                                                    required
+                                                />
                                             </div>
-                                        </div>
-                                        <div className="space-y-2">
-                                            <Label>Email Address</Label>
-                                            <Input value={user?.email || ""} disabled />
-                                        </div>
-                                        <div className="space-y-2">
-                                            <Label>Role</Label>
-                                            <div className="flex items-center gap-2">
-                                                <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-primary/10 text-primary">
-                                                    {user?.role}
-                                                </span>
+                                            <div className="space-y-2">
+                                                <Label htmlFor="profileCurrentPassword">
+                                                    Current Password
+                                                    <span className="font-normal text-muted-foreground text-xs ml-1">
+                                                        (required to change your email)
+                                                    </span>
+                                                </Label>
+                                                <Input
+                                                    id="profileCurrentPassword"
+                                                    type="password"
+                                                    autoComplete="current-password"
+                                                    value={profileCurrentPassword}
+                                                    onChange={(e) => setProfileCurrentPassword(e.target.value)}
+                                                    placeholder="Enter current password"
+                                                />
                                             </div>
-                                        </div>
+                                            <div className="space-y-2">
+                                                <Label>Role</Label>
+                                                <div className="flex items-center gap-2">
+                                                    <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-primary/10 text-primary">
+                                                        {user?.role}
+                                                    </span>
+                                                </div>
+                                            </div>
+
+                                            {profileMessage && (
+                                                <Alert variant={profileMessage.type === "success" ? "default" : "destructive"}>
+                                                    {profileMessage.type === "success" ? <CheckCircle className="h-4 w-4" /> : <AlertCircle className="h-4 w-4" />}
+                                                    <AlertDescription>{profileMessage.text}</AlertDescription>
+                                                </Alert>
+                                            )}
+
+                                            <Button type="submit" disabled={isSavingProfile}>
+                                                {isSavingProfile ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : "Save Profile"}
+                                            </Button>
+                                        </form>
                                     </CardContent>
                                 </Card>
 
                                 <Card>
                                     <CardHeader>
                                         <CardTitle>Security</CardTitle>
-                                        <CardDescription>Update your password</CardDescription>
+                                        <CardDescription>Change your password</CardDescription>
                                     </CardHeader>
                                     <CardContent>
                                         <form onSubmit={handlePasswordChange} className="space-y-4">
+                                            <div className="space-y-2">
+                                                <Label htmlFor="current-password">Current Password</Label>
+                                                <Input
+                                                    id="current-password"
+                                                    type="password"
+                                                    autoComplete="current-password"
+                                                    value={currentPassword}
+                                                    onChange={(e) => setCurrentPassword(e.target.value)}
+                                                    placeholder="Enter current password"
+                                                    required
+                                                />
+                                            </div>
                                             <div className="space-y-2">
                                                 <Label htmlFor="new-password">New Password</Label>
                                                 <Input
                                                     id="new-password"
                                                     type="password"
+                                                    autoComplete="new-password"
                                                     value={newPassword}
                                                     onChange={(e) => setNewPassword(e.target.value)}
-                                                    placeholder="Enter new password"
+                                                    placeholder="At least 6 characters"
                                                     required
                                                 />
                                             </div>
@@ -268,6 +382,7 @@ export default function SettingsPage() {
                                                 <Input
                                                     id="confirm-password"
                                                     type="password"
+                                                    autoComplete="new-password"
                                                     value={confirmPassword}
                                                     onChange={(e) => setConfirmPassword(e.target.value)}
                                                     placeholder="Confirm new password"

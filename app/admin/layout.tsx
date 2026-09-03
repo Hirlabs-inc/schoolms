@@ -41,7 +41,7 @@ const allowedNavForRole = (role: UserRole) => {
   if (role === "ADMIN" || role === "MANAGER") return navigation
   if (role === "SECRETARY") {
     return navigation.filter((item) =>
-      ["/admin", "/admin/students", "/admin/fees", "/admin/payroll", "/admin/progress"].includes(item.href)
+      ["/admin", "/admin/students", "/admin/fees", "/admin/payroll", "/admin/progress", "/settings"].includes(item.href)
     )
   }
   return []

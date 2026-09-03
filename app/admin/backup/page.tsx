@@ -16,7 +16,7 @@ export default function BackupPage() {
     setMessage(null)
     try {
       // Collect all data from localStorage tables
-      const tables = ["users", "students", "teachers", "classes", "courses", "exams", "examResults", "attendance", "fees", "payments", "expenses"]
+      const tables = ["users", "students", "teachers", "classes", "courses", "exams", "examResults", "attendance", "fees", "payments", "expenses", "income", "teacherContracts", "teacherCommissions", "payrollRecords", "enrollmentProgress", "courseTeachers", "profiles"]
       const backup: Record<string, any> = {}
 
       for (const table of tables) {
