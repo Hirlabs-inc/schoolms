@@ -213,3 +213,15 @@ create table if not exists institution_settings (
   createdat text default (now()::text),
   updatedat text
 );
+
+-- Role-based access control (RBAC).
+-- Each row grants (or denies) a named permission to a role.
+-- When no row exists for (role, permission) the default from
+-- DEFAULT_ROLE_PERMISSIONS is the fallback — this lets the admin
+-- fine-tune access per role without touching code.
+create table if not exists role_permissions (
+  role text not null,
+  permission text not null,
+  granted boolean not null default true,
+  primary key (role, permission)
+);

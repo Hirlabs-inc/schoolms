@@ -33,6 +33,7 @@ const ALLOWED_TABLES = new Set([
   "exam_results",
   "attendance",
   "profiles",
+  "role_permissions",
 ])
 
 function normalize(sql: string): string {

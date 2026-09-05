@@ -59,6 +59,45 @@ export default function SeedPage() {
       })
       addStatus("✅ Institution settings saved")
 
+      addStatus("Seeding role permissions...")
+      const roles: Array<{ role: string; permission: string; granted: boolean }> = []
+      const defaults = {
+        ADMIN: true, MANAGER: true,
+        SECRETARY: {
+          view_dashboard: true, view_students: true, add_students: true, delete_students: false,
+          view_courses: true, add_courses: false, delete_courses: false,
+          view_teachers: false, add_teachers: false, delete_teachers: false,
+          view_fees: true, manage_fees: false, view_expenses: true, add_expenses: false,
+          view_income: true, add_income: false, view_payroll: true, manage_payroll: false,
+          view_reports: true, manage_users: false, view_backup: false, manage_settings: false,
+          manage_permissions: false, view_exams: true, add_exams: false, view_results: true, add_results: false,
+        },
+        TEACHER: false, STUDENT: false,
+      }
+      const allPerms = [
+        "view_dashboard","view_students","add_students","delete_students","view_courses","add_courses","delete_courses",
+        "view_teachers","add_teachers","delete_teachers","view_fees","manage_fees","view_expenses","add_expenses",
+        "view_income","add_income","view_payroll","manage_payroll","view_reports","manage_users","view_backup",
+        "manage_settings","manage_permissions","view_exams","add_exams","view_results","add_results",
+      ]
+      for (const role of ["ADMIN", "MANAGER", "SECRETARY", "TEACHER", "STUDENT"] as const) {
+        for (const perm of allPerms) {
+          let granted: boolean
+          if (role === "ADMIN" || role === "MANAGER") granted = true
+          else if (role === "TEACHER" || role === "STUDENT") granted = false
+          else granted = (defaults.SECRETARY as any)[perm] ?? false
+          roles.push({ role, permission: perm, granted })
+        }
+      }
+      // Upsert each permission row.
+      for (const r of roles) {
+        await turso.execute({
+          sql: "insert or replace into role_permissions (role, permission, granted) values (?, ?, ?)",
+          args: [r.role, r.permission, r.granted ? 1 : 0],
+        })
+      }
+      addStatus("✅ Role permissions seeded")
+
       addStatus("Done! You can now login.")
     } catch (err: any) {
       console.error(err)
