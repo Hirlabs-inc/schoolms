@@ -6,6 +6,7 @@ import { useEffect, useState } from "react"
 import { AuthGuard } from "@/components/auth-guard"
 import { DashboardLayout } from "@/components/dashboard-layout"
 import { useUser } from "@/contexts/user-context"
+import { getStoredToken } from "@/lib/auth-client"
 import type { UserRole } from "@/lib/types"
 import { Users, BookOpen, DollarSign, CreditCard, LayoutDashboard, TrendingUp, Wallet, BarChart3, Settings, Database, Shield, FileText, ClipboardList } from "lucide-react"
 
@@ -76,7 +77,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     ;(async () => {
       try {
         const res = await fetch(`/api/admin/permissions/${user.role}`, {
-          headers: { Authorization: `Bearer ${localStorage.getItem("token") || ""}` },
+          headers: { Authorization: `Bearer ${getStoredToken() || ""}` },
         })
         if (!res.ok) throw new Error("permissions fetch failed")
         const data = await res.json() as { permissions: Array<{ permission: string; granted: boolean }> }

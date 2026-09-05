@@ -11,6 +11,7 @@ import { Shield, RefreshCw, Save, Loader2, CheckCircle, AlertCircle } from "luci
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import type { Permission } from "@/lib/permissions"
 import { ALL_PERMISSIONS } from "@/lib/permissions"
+import { fetchRolePermissions, saveRolePermissions, resetRolePermissions } from "@/lib/api"
 
 type Role = "ADMIN" | "MANAGER" | "SECRETARY" | "TEACHER" | "STUDENT"
 const ROLES: Role[] = ["ADMIN", "MANAGER", "SECRETARY", "TEACHER", "STUDENT"]
@@ -46,10 +47,8 @@ export default function PermissionsPage() {
     if (rolesData[role]) return // already loaded for this role
     setIsLoading(true)
     try {
-      const res = await fetch(`/api/admin/permissions/${role}`)
-      if (!res.ok) throw new Error(`Failed to load: ${res.status}`)
-      const data = (await res.json()) as { role: Role; permissions: PermissionRow[] }
-      setRolesData((prev) => ({ ...prev, [role]: data }))
+      const data = await fetchRolePermissions(role)
+      setRolesData((prev) => ({ ...prev, [role]: { role, permissions: data.permissions } }))
     } catch (e: any) {
       console.error(e)
       setSaveResult({ type: "error", text: e.message || "Failed to load permissions" })
@@ -78,17 +77,7 @@ export default function PermissionsPage() {
     setIsSaving(true)
     setSaveResult(null)
     try {
-      const updates = perms.map((p) => ({
-        role: activeRole,
-        permission: p.permission,
-        granted: p.granted,
-      }))
-      const res = await fetch("/api/admin/permissions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ updates }),
-      })
-      if (!res.ok) throw new Error(`Save failed: ${res.status}`)
+      await saveRolePermissions(activeRole, perms.map((p) => ({ permission: p.permission, granted: p.granted })))
       setModified((prev) => ({ ...prev, [activeRole]: false }))
       setSaveResult({ type: "success", text: `Permissions for ${activeRole} saved.` })
     } catch (e: any) {
@@ -103,8 +92,7 @@ export default function PermissionsPage() {
     setIsResetting(true)
     setSaveResult(null)
     try {
-      const res = await fetch(`/api/admin/permissions/${activeRole}`, { method: "DELETE" })
-      if (!res.ok) throw new Error(`Reset failed: ${res.status}`)
+      await resetRolePermissions(activeRole)
       // Reload from DB.
       setRolesData((prev) => {
         const newPrev = { ...prev }

@@ -89,6 +89,40 @@ export function adminDeleteUser(id: string) {
   return apiRequest(`/api/admin/users/${encodeURIComponent(id)}`, "DELETE")
 }
 
+// --- Permissions management ---
+export async function fetchRolePermissions(role: string) {
+  const token = getStoredToken()
+  const res = await fetch(`/api/admin/permissions/${role}`, {
+    headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+  })
+  if (!res.ok) throw new Error(`Failed to load: ${res.status}`)
+  return res.json() as Promise<{ role: string; permissions: Array<{ permission: string; label: string; group: string; granted: boolean }> }>
+}
+
+export async function saveRolePermissions(role: string, updates: Array<{ permission: string; granted: boolean }>) {
+  const token = getStoredToken()
+  const res = await fetch("/api/admin/permissions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({ updates: updates.map((u) => ({ role, ...u })) }),
+  })
+  if (!res.ok) throw new Error(`Save failed: ${res.status}`)
+  return res.json()
+}
+
+export async function resetRolePermissions(role: string) {
+  const token = getStoredToken()
+  const res = await fetch(`/api/admin/permissions/${role}`, {
+    method: "DELETE",
+    headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+  })
+  if (!res.ok) throw new Error(`Reset failed: ${res.status}`)
+  return res.json()
+}
+
 // Self-service profile update for the logged-in user (name/email/password).
 export async function updateMyProfile(input: {
   firstName?: string
