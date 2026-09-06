@@ -1,7 +1,6 @@
 "use client"
 
 import type React from "react"
-
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
@@ -9,10 +8,37 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { login } from "@/lib/api"
+import { login, fetchRolePermissions } from "@/lib/api"
 import { useUser } from "@/contexts/user-context"
 import { GraduationCap, Loader2 } from "lucide-react"
 import Link from "next/link"
+
+// Map permission -> preferred admin route. Used to pick the first page a user
+// is allowed to see after login, so they never land on a page they can't access.
+const PERMISSION_ROUTE: Record<string, string> = {
+  view_dashboard: "/admin",
+  view_students: "/admin/students",
+  view_courses: "/admin/courses",
+  view_fees: "/admin/fees",
+  view_expenses: "/admin/expenses",
+  view_income: "/admin/income",
+  view_payroll: "/admin/payroll",
+  view_reports: "/admin/reports",
+  view_exams: "/admin/exams",
+  manage_users: "/admin/users",
+  manage_permissions: "/admin/permissions",
+  view_backup: "/admin/backup",
+}
+
+// First admin route to try for each role (used for TEACHER/STUDENT where we
+// don't need to check permissions).
+const ROLE_DEFAULT_ROUTE: Record<string, string> = {
+  ADMIN: "/admin",
+  MANAGER: "/admin",
+  SECRETARY: "/admin",
+  TEACHER: "/teacher",
+  STUDENT: "/student",
+}
 
 export default function LoginPage() {
   const router = useRouter()
@@ -21,6 +47,39 @@ export default function LoginPage() {
   const [password, setPassword] = useState("")
   const [error, setError] = useState("")
   const [loading, setLoading] = useState(false)
+
+  async function redirectToRoleDashboard(role: string) {
+    // For teacher/student, redirect directly — no permission check needed.
+    if (role === "TEACHER" || role === "STUDENT") {
+      router.push(ROLE_DEFAULT_ROUTE[role] || "/admin")
+      return
+    }
+
+    // For admin roles, fetch permissions and redirect to the first page
+    // they're allowed to see. This prevents landing on /admin when
+    // view_dashboard is false.
+    try {
+      const data = await fetchRolePermissions(role)
+      const granted = new Set(
+        data.permissions.filter((p) => p.granted).map((p) => p.permission)
+      )
+
+      // Find the first permission the user can access, in priority order.
+      const orderedPerms = Object.keys(PERMISSION_ROUTE)
+      let target = null
+      for (const perm of orderedPerms) {
+        if (granted.has(perm)) {
+          target = PERMISSION_ROUTE[perm]
+          break
+        }
+      }
+
+      router.push(target || ROLE_DEFAULT_ROUTE[role] || "/admin")
+    } catch {
+      // If the permissions API fails, fall back to the role default.
+      router.push(ROLE_DEFAULT_ROUTE[role] || "/admin")
+    }
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -31,26 +90,7 @@ export default function LoginPage() {
       const user = await login(email, password)
       if (user) {
         await refreshUser()
-        switch (user.role) {
-          case "ADMIN":
-            router.push("/admin")
-            break
-          case "MANAGER":
-            router.push("/admin")
-            break
-          case "SECRETARY":
-            router.push("/admin")
-            break
-          case "TEACHER":
-            router.push("/teacher")
-            break
-          case "STUDENT":
-            router.push("/student")
-            break
-          default:
-            router.push("/admin")
-            break
-        }
+        await redirectToRoleDashboard(user.role)
       }
     } catch (err: any) {
       console.error(err)
@@ -59,8 +99,6 @@ export default function LoginPage() {
       setLoading(false)
     }
   }
-
-
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/5 via-background to-secondary/5 p-4">
