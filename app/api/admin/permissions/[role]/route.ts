@@ -4,7 +4,7 @@
  * DELETE /api/admin/permissions/[role]  — reset a role to defaults
  */
 import { NextRequest, NextResponse } from "next/server"
-import { verifyToken } from "@/lib/auth"
+import { verifyToken, type SessionUser } from "@/lib/auth"
 import { ALL_PERMISSIONS, DEFAULT_ROLE_PERMISSIONS, setRolePermission, resetRolePermissions } from "@/lib/permissions"
 import type { Permission } from "@/lib/permissions"
 import type { UserRole } from "@/lib/types"
@@ -14,9 +14,19 @@ function isAllowedRole(v: string): v is UserRole {
   return ["ADMIN", "MANAGER", "SECRETARY", "TEACHER", "STUDENT"].includes(v)
 }
 
+// GET allows any authenticated user to fetch their own role's permissions.
+// PATCH and DELETE require ADMIN (can only modify permissions, not read them).
 async function getActor(req: NextRequest) {
   const token = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "") || null
   return token ? await verifyToken(token) : null
+}
+
+async function canReadPermissions(actor: SessionUser | null, role: string): Promise<boolean> {
+  if (!actor) return false
+  // ADMIN can read any role's permissions.
+  if (actor.role === "ADMIN") return true
+  // Non-admin users can only read their own role's permissions.
+  return actor.role === role
 }
 
 interface Ctx {
@@ -25,13 +35,12 @@ interface Ctx {
 
 export async function GET(req: NextRequest, { params }: Ctx) {
   const actor = await getActor(req)
-  if (!actor || actor.role !== "ADMIN") {
-    return NextResponse.json({ error: "Forbidden — admin only" }, { status: 403 })
-  }
-
   const { role } = await params
   if (!isAllowedRole(role)) {
     return NextResponse.json({ error: `Invalid role: ${role}` }, { status: 400 })
+  }
+  if (!(await canReadPermissions(actor, role))) {
+    return NextResponse.json({ error: "Forbidden — admin only" }, { status: 403 })
   }
 
   const defaults = DEFAULT_ROLE_PERMISSIONS[role as UserRole]
