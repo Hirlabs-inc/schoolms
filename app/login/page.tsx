@@ -35,11 +35,20 @@ export default function LoginPage() {
           case "ADMIN":
             router.push("/admin")
             break
+          case "MANAGER":
+            router.push("/admin")
+            break
+          case "SECRETARY":
+            router.push("/admin")
+            break
           case "TEACHER":
             router.push("/teacher")
             break
           case "STUDENT":
             router.push("/student")
+            break
+          default:
+            router.push("/admin")
             break
         }
       }
