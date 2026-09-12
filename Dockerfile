@@ -5,15 +5,15 @@ ARG TURSO_URL
 ARG TURSO_TOKEN
 ARG DATABASE_URL
 WORKDIR /app
-COPY package.json package-lock.json* ./
-RUN npm ci --legacy-peer-deps
+COPY package.json pnpm-lock.yaml* ./
+RUN npm install -g pnpm && pnpm install --frozen-lockfile
 COPY . .
 ENV JWT_SECRET=$JWT_SECRET
 ENV TURSO_URL=$TURSO_URL
 ENV TURSO_TOKEN=$TURSO_TOKEN
 ENV DATABASE_URL=$DATABASE_URL
 ENV NODE_OPTIONS=--max-old-space-size=2048
-RUN npm run build
+RUN pnpm build
 
 # ---- Runtime stage ----
 FROM node:20-alpine AS runner
@@ -33,4 +33,4 @@ COPY --from=builder /app/app ./app
 COPY --from=builder /app/styles ./styles
 
 EXPOSE 3000
-CMD ["npm", "run", "start"]
+CMD ["npx", "next", "start"]
