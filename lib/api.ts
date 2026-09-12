@@ -156,6 +156,75 @@ const TABLE_MAP: Record<string, string> = {
   institutionSettings: "institution_settings",
 }
 
+/**
+ * Maps (tableKey, action) → permission key.
+ * Used by CRUD functions to enforce per-action RBAC.
+ */
+const KEY_PERMISSION_MAP: Record<string, Record<"view" | "add" | "update" | "delete", string>> = {
+  students:         { view: "view_students",   add: "add_students",   update: "add_students",   delete: "delete_students"  },
+  teachers:         { view: "view_teachers",   add: "add_teachers",   update: "add_teachers",   delete: "delete_teachers"  },
+  courses:          { view: "view_courses",    add: "add_courses",    update: "add_courses",    delete: "delete_courses"   },
+  exams:            { view: "view_exams",      add: "add_exams",      update: "add_exams",      delete: "delete_exams"     },
+  examResults:      { view: "view_results",    add: "add_results",    update: "add_results",    delete: "delete_exams"     },
+  attendance:       { view: "view_attendance", add: "view_attendance", update: "view_attendance", delete: "view_attendance"},
+  fees:             { view: "view_fees",       add: "manage_fees",    update: "manage_fees",    delete: "manage_fees"      },
+  payments:         { view: "view_fees",       add: "manage_fees",    update: "manage_fees",    delete: "manage_fees"      },
+  expenses:         { view: "view_expenses",   add: "add_expenses",   update: "add_expenses",   delete: "manage_fees"      },
+  income:           { view: "view_income",     add: "add_income",     update: "add_income",     delete: "manage_fees"      },
+  teacherContracts: { view: "view_payroll",    add: "manage_payroll", update: "manage_payroll", delete: "manage_payroll"    },
+  payrollRecords:   { view: "view_payroll",    add: "manage_payroll", update: "manage_payroll", delete: "manage_payroll"    },
+  enrollmentProgress: { view: "view_reports", add: "add_results",    update: "add_results",    delete: "view_reports"      },
+  courseTeachers:   { view: "view_courses",    add: "add_courses",    update: "add_courses",    delete: "delete_courses"   },
+  institutionSettings: { view: "manage_settings", add: "manage_settings", update: "manage_settings", delete: "manage_settings" },
+  users:            { view: "manage_users",    add: "manage_users",   update: "manage_users",   delete: "manage_users"     },
+}
+
+/**
+ * In-memory permission cache so we don't hit the API on every CRUD call.
+ * Refreshed when the user changes or when explicitly cleared.
+ */
+let _permCache: Map<string, boolean> | null = null
+let _permCacheRole: string | null = null
+
+async function checkKeyPermission(key: string, action: "view" | "add" | "update" | "delete"): Promise<void> {
+  const user = await getCurrentUser()
+  if (!user) throw new Error("Authentication required")
+  // ADMIN always has all permissions.
+  if (user.role === "ADMIN") return
+
+  const permMap = KEY_PERMISSION_MAP[key]
+  if (!permMap) return // Unknown key — no permission gate (legacy behaviour)
+
+  const requiredPerm = permMap[action]
+  if (!requiredPerm) return // No mapping — allow by default
+
+  // Lazily build the cache from the permissions API.
+  // The API merges DB overrides on top of DEFAULT_ROLE_PERMISSIONS.
+  if (_permCacheRole !== user.role || !_permCache) {
+    const res = await fetch(`/api/admin/permissions/${user.role}`, {
+      headers: { Authorization: `Bearer ${getStoredToken() || ""}` },
+    })
+    if (res.ok) {
+      const data = await res.json() as { permission: string; granted: boolean }[]
+      _permCache = new Map(data.map((p) => [p.permission, p.granted]))
+    } else {
+      // If the API fails, fall back to deny-all for non-admin roles.
+      _permCache = new Map()
+    }
+    _permCacheRole = user.role
+  }
+
+  if (!_permCache.has(requiredPerm) || !_permCache.get(requiredPerm)) {
+    throw new Error(`Forbidden: missing permission '${requiredPerm}'`)
+  }
+}
+
+/** Clear the in-memory permission cache so the next CRUD call re-fetches. */
+export function clearPermissionCache() {
+  _permCache = null
+  _permCacheRole = null
+}
+
 function isAuthenticated() {
   return !!getStoredToken()
 }
@@ -190,6 +259,7 @@ function indexRows(rows: any[]): Map<string, any> {
 
 export async function getItems<T>(key: string): Promise<T[]> {
   requireAuth()
+  await checkKeyPermission(key, "view")
   const table = TABLE_MAP[key]
   if (!table) throw new Error(`Unknown key: ${key}`)
 
@@ -384,6 +454,7 @@ export async function getItems<T>(key: string): Promise<T[]> {
 
 export async function addItem<T extends Record<string, any>>(key: string, item: T): Promise<T> {
   requireAuth()
+  await checkKeyPermission(key, "add")
   const table = TABLE_MAP[key]
   if (!table) throw new Error(`Unknown key: ${key}`)
 
@@ -406,6 +477,7 @@ export async function addItem<T extends Record<string, any>>(key: string, item: 
 
 export async function updateItem<T>(key: string, id: string, updates: Partial<T>): Promise<T> {
   requireAuth()
+  await checkKeyPermission(key, "update")
   const table = TABLE_MAP[key]
   if (!table) throw new Error(`Unknown key: ${key}`)
 
@@ -455,6 +527,7 @@ export async function upsertItem<T extends Record<string, any>>(key: string, ite
 
 export async function deleteItem(key: string, id: string): Promise<void> {
   requireAuth()
+  await checkKeyPermission(key, "delete")
   const table = TABLE_MAP[key]
   if (!table) throw new Error(`Unknown key: ${key}`)
 
@@ -476,6 +549,7 @@ export async function deleteItem(key: string, id: string): Promise<void> {
 // Cascade delete a student and all linked records
 export async function deleteStudent(id: string): Promise<void> {
   requireAuth()
+  await checkKeyPermission("students", "delete")
   // Delete in order: child records first, then the student, then the profile
   // 1. Delete exam results for this student
   await turso.execute({ sql: "delete from exam_results where \"studentId\" = ?", args: [id] })
