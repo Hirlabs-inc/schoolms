@@ -4,7 +4,7 @@
  */
 import { NextRequest, NextResponse } from "next/server"
 import { verifyToken } from "@/lib/auth"
-import { ALL_PERMISSIONS, getAllRolePermissions, setRolePermission } from "@/lib/permissions"
+import { ALL_PERMISSIONS, getAllRolePermissions, setRolePermission, hasPermission } from "@/lib/permissions"
 import type { Permission } from "@/lib/permissions"
 import type { UserRole } from "@/lib/types"
 
@@ -19,8 +19,8 @@ async function getActor(req: NextRequest) {
 
 export async function GET(req: NextRequest) {
   const actor = await getActor(req)
-  if (!actor || actor.role !== "ADMIN") {
-    return NextResponse.json({ error: "Forbidden — admin only" }, { status: 403 })
+  if (!actor || (actor.role !== "ADMIN" && !(await hasPermission(actor.role, "manage_permissions")))) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 
   const rows = await getAllRolePermissions()
@@ -29,8 +29,8 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const actor = await getActor(req)
-  if (!actor || actor.role !== "ADMIN") {
-    return NextResponse.json({ error: "Forbidden — admin only" }, { status: 403 })
+  if (!actor || (actor.role !== "ADMIN" && !(await hasPermission(actor.role, "manage_permissions")))) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 
   let body: any
@@ -45,6 +45,10 @@ export async function POST(req: NextRequest) {
 
   if (!Array.isArray(updates)) {
     return NextResponse.json({ error: "updates must be an array" }, { status: 400 })
+  }
+
+  if (actor.role !== "ADMIN" && updates.some((u) => u.role === "ADMIN")) {
+    return NextResponse.json({ error: "Only administrators can modify administrator permissions" }, { status: 403 })
   }
 
   for (const u of updates) {

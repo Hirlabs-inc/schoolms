@@ -1,14 +1,14 @@
 "use client"
 
 import type React from "react"
-import { usePathname } from "next/navigation"
+import { usePathname, useRouter } from "next/navigation"
 import { useEffect, useState } from "react"
 import { AuthGuard } from "@/components/auth-guard"
 import { DashboardLayout } from "@/components/dashboard-layout"
 import { useUser } from "@/contexts/user-context"
 import { getStoredToken } from "@/lib/auth-client"
 import type { UserRole } from "@/lib/types"
-import { Users, BookOpen, DollarSign, CreditCard, LayoutDashboard, TrendingUp, Wallet, BarChart3, Settings, Database, Shield, FileText, ClipboardList } from "lucide-react"
+import { Users, BookOpen, DollarSign, CreditCard, LayoutDashboard, TrendingUp, Wallet, BarChart3, Settings, Database, Shield, FileText, ClipboardList, Loader2 } from "lucide-react"
 
 // Navigation items mapped 1:1 to permissions.
 const navigation = [
@@ -22,7 +22,7 @@ const navigation = [
   { name: "Progress",         href: "/admin/progress",       icon: BarChart3,          permission: "view_dashboard"  },
   { name: "Reports",          href: "/admin/reports",        icon: TrendingUp,         permission: "view_reports"    },
   { name: "Exams",            href: "/admin/exams",          icon: ClipboardList,      permission: "view_exams"      },
-  { name: "Users",              href: "/admin/users",          icon: Users,              permission: "manage_users"    },
+  { name: "Users",            href: "/admin/users",          icon: Users,              permission: "manage_users"    },
   { name: "Permissions",      href: "/admin/permissions",    icon: Shield,             permission: "manage_permissions" },
   { name: "Backup",           href: "/admin/backup",         icon: Database,           permission: "view_backup"     },
   { name: "Settings",         href: "/settings",             icon: Settings,           permission: "manage_settings"  },
@@ -53,7 +53,7 @@ const fallbackNavForRole = (role: UserRole) => {
   if (role === "ADMIN" || role === "MANAGER") return navigation
   if (role === "SECRETARY") {
     return navigation.filter((item) =>
-      ["/admin", "/admin/students", "/admin/courses", "/admin/fees", "/admin/income", "/admin/expenses", "/admin/payroll", "/admin/progress", "/admin/users", "/settings"].includes(item.href)
+      ["view_dashboard", "view_students", "view_courses", "view_fees", "view_expenses", "view_income", "view_payroll", "view_reports", "view_exams"].includes(item.permission)
     )
   }
   return []
@@ -61,6 +61,7 @@ const fallbackNavForRole = (role: UserRole) => {
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
+  const router = useRouter()
   const { user, isLoading } = useUser()
   const title = titles[pathname] || "Dashboard"
 
@@ -68,6 +69,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   // API (which merges DB overrides + defaults). Falls back to role-based
   // filtering when the API is unavailable.
   const [navItems, setNavItems] = useState(navigation)
+  const [allowedPermissions, setAllowedPermissions] = useState<Set<string> | null>(null)
+  const [hasCheckedPermission, setHasCheckedPermission] = useState(false)
 
   useEffect(() => {
     if (!user) {
@@ -84,15 +87,50 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         const granted = new Set(
           data.permissions.filter((p) => p.granted).map((p) => p.permission)
         )
+        setAllowedPermissions(granted)
         setNavItems(navigation.filter((item) => granted.has(item.permission)))
       } catch {
         // Fallback: use the original role-based nav.
-        setNavItems(fallbackNavForRole(user.role))
+        const fallback = fallbackNavForRole(user.role)
+        setNavItems(fallback)
+        setAllowedPermissions(new Set(fallback.map((item) => item.permission)))
+      } finally {
+        setHasCheckedPermission(true)
       }
     })()
   }, [user])
 
-  if (isLoading) return null
+  // After permissions are loaded, check if the current page is allowed.
+  // If not, redirect to /unauthorized.
+  useEffect(() => {
+    if (!hasCheckedPermission || !allowedPermissions || !user) return
+
+    // Find the nav item matching the current path.
+    const currentNav = navigation.find((item) => pathname === item.href)
+    if (currentNav && !allowedPermissions.has(currentNav.permission)) {
+      router.push("/unauthorized")
+      return
+    }
+
+    // Also check parent routes for nested paths (e.g. /admin/students/123 -> /admin/students).
+    const parentRoute = pathname.split("/").slice(0, 3).join("/")
+    const parentNav = navigation.find((item) => item.href === parentRoute)
+    if (parentNav && !allowedPermissions.has(parentNav.permission)) {
+      router.push("/unauthorized")
+      return
+    }
+  }, [hasCheckedPermission, allowedPermissions, user, pathname, router])
+
+  if (isLoading || !hasCheckedPermission) return null
+
+  // Block rendering if permissions haven't loaded yet or user is being redirected.
+  if (!allowedPermissions) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    )
+  }
 
   return (
     <AuthGuard allowedRoles={["ADMIN", "MANAGER", "SECRETARY"]}>

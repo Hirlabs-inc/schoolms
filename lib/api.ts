@@ -590,7 +590,16 @@ export async function createUser(userData: any) {
 // createLoginAccount is true; otherwise the student is just a `students` record
 // (no forced user account). Commission is computed on enrollment regardless.
 export async function registerStudent(userData: any) {
-  await requireRole(["ADMIN"])
+  await requireRole(["ADMIN", "MANAGER", "SECRETARY"])
+  const u = await getCurrentUser()
+  if (u && !["ADMIN"].includes(u.role)) {
+    const token = getStoredToken()
+    const res = await fetch("/api/permissions/me", { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+    if (res.ok) {
+      const data = (await res.json()) as { permissions: string[] }
+      if (!data.permissions.includes("add_students")) throw new Error("Forbidden: add_students permission required")
+    }
+  }
 
   const createLoginAccount = userData.createLoginAccount === true
   const userId = crypto.randomUUID()

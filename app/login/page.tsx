@@ -47,22 +47,22 @@ export default function LoginPage() {
   const [password, setPassword] = useState("")
   const [error, setError] = useState("")
   const [loading, setLoading] = useState(false)
-
   async function redirectToRoleDashboard(role: string) {
-    // For teacher/student, redirect directly — no permission check needed.
-    if (role === "TEACHER" || role === "STUDENT") {
-      router.push(ROLE_DEFAULT_ROUTE[role] || "/admin")
-      return
-    }
-
-    // For admin roles, fetch permissions and redirect to the first page
-    // they're allowed to see. This prevents landing on /admin when
-    // view_dashboard is false.
     try {
       const data = await fetchRolePermissions(role)
       const granted = new Set(
         data.permissions.filter((p) => p.granted).map((p) => p.permission)
       )
+
+      // If teacher/student doesn't have admin view_dashboard, default to their portal
+      if (role === "TEACHER" && !granted.has("view_dashboard")) {
+        router.push("/teacher")
+        return
+      }
+      if (role === "STUDENT" && !granted.has("view_dashboard")) {
+        router.push("/student")
+        return
+      }
 
       // Find the first permission the user can access, in priority order.
       const orderedPerms = Object.keys(PERMISSION_ROUTE)

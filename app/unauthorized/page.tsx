@@ -1,27 +1,26 @@
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { ShieldAlert } from "lucide-react"
-import Link from "next/link"
+"use client"
+
+import { useRouter } from "next/navigation"
+import { ShieldX } from "lucide-react"
 
 export default function UnauthorizedPage() {
+  const router = useRouter()
+
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader className="text-center">
-          <div className="flex justify-center mb-4">
-            <div className="flex items-center justify-center w-16 h-16 rounded-full bg-destructive/10 text-destructive">
-              <ShieldAlert className="w-8 h-8" />
-            </div>
-          </div>
-          <CardTitle>Access Denied</CardTitle>
-          <CardDescription>You don&apos;t have permission to access this page</CardDescription>
-        </CardHeader>
-        <CardContent className="flex justify-center">
-          <Button asChild>
-            <Link href="/login">Return to Login</Link>
-          </Button>
-        </CardContent>
-      </Card>
+    <div className="min-h-screen flex items-center justify-center bg-background">
+      <div className="text-center">
+        <ShieldX className="h-16 w-16 text-destructive mx-auto mb-4" />
+        <h1 className="text-2xl font-bold mb-2">Access Denied</h1>
+        <p className="text-muted-foreground mb-4">
+          You do not have permission to access this page.
+        </p>
+        <button
+          onClick={() => router.push("/admin")}
+          className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90"
+        >
+          Go to Dashboard
+        </button>
+      </div>
     </div>
   )
 }

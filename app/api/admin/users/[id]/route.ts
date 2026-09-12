@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from "next/server"
 import { verifyToken } from "@/lib/auth"
 import { deleteStaffUser, updateStaffUser, HttpError } from "@/lib/user-admin"
+import { hasPermission } from "@/lib/permissions"
 
 type Ctx = { params: Promise<{ id: string }> }
 
 export async function PATCH(req: NextRequest, { params }: Ctx) {
   const token = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "") || null
   const actor = token ? await verifyToken(token) : null
-  if (!actor || (actor.role !== "ADMIN" && actor.role !== "MANAGER")) {
+  if (!actor || (actor.role !== "ADMIN" && !(await hasPermission(actor.role, "manage_users")) && !(await hasPermission(actor.role, "add_students")))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 
@@ -35,7 +36,7 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
 export async function DELETE(req: NextRequest, { params }: Ctx) {
   const token = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "") || null
   const actor = token ? await verifyToken(token) : null
-  if (!actor || (actor.role !== "ADMIN" && actor.role !== "MANAGER")) {
+  if (!actor || (actor.role !== "ADMIN" && !(await hasPermission(actor.role, "manage_users")) && !(await hasPermission(actor.role, "add_students")))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 

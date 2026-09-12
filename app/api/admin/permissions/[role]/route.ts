@@ -5,7 +5,7 @@
  */
 import { NextRequest, NextResponse } from "next/server"
 import { verifyToken, type SessionUser } from "@/lib/auth"
-import { ALL_PERMISSIONS, DEFAULT_ROLE_PERMISSIONS, setRolePermission, resetRolePermissions } from "@/lib/permissions"
+import { ALL_PERMISSIONS, DEFAULT_ROLE_PERMISSIONS, setRolePermission, resetRolePermissions, hasPermission } from "@/lib/permissions"
 import type { Permission } from "@/lib/permissions"
 import type { UserRole } from "@/lib/types"
 import { turso } from "@/lib/turso"
@@ -15,7 +15,7 @@ function isAllowedRole(v: string): v is UserRole {
 }
 
 // GET allows any authenticated user to fetch their own role's permissions.
-// PATCH and DELETE require ADMIN (can only modify permissions, not read them).
+// Users with manage_permissions or ADMIN can read all roles.
 async function getActor(req: NextRequest) {
   const token = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "") || null
   return token ? await verifyToken(token) : null
@@ -23,9 +23,8 @@ async function getActor(req: NextRequest) {
 
 async function canReadPermissions(actor: SessionUser | null, role: string): Promise<boolean> {
   if (!actor) return false
-  // ADMIN can read any role's permissions.
   if (actor.role === "ADMIN") return true
-  // Non-admin users can only read their own role's permissions.
+  if (await hasPermission(actor.role as UserRole, "manage_permissions")) return true
   return actor.role === role
 }
 
@@ -67,13 +66,16 @@ export async function GET(req: NextRequest, { params }: Ctx) {
 
 export async function PATCH(req: NextRequest, { params }: Ctx) {
   const actor = await getActor(req)
-  if (!actor || actor.role !== "ADMIN") {
-    return NextResponse.json({ error: "Forbidden — admin only" }, { status: 403 })
+  if (!actor || (actor.role !== "ADMIN" && !(await hasPermission(actor.role as UserRole, "manage_permissions")))) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 
   const { role } = await params
   if (!isAllowedRole(role)) {
     return NextResponse.json({ error: `Invalid role: ${role}` }, { status: 400 })
+  }
+  if (actor.role !== "ADMIN" && role === "ADMIN") {
+    return NextResponse.json({ error: "Only administrators can modify administrator permissions" }, { status: 403 })
   }
 
   let body: any
@@ -107,13 +109,16 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
 
 export async function DELETE(req: NextRequest, { params }: Ctx) {
   const actor = await getActor(req)
-  if (!actor || actor.role !== "ADMIN") {
-    return NextResponse.json({ error: "Forbidden — admin only" }, { status: 403 })
+  if (!actor || (actor.role !== "ADMIN" && !(await hasPermission(actor.role as UserRole, "manage_permissions")))) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 
   const { role } = await params
   if (!isAllowedRole(role)) {
     return NextResponse.json({ error: `Invalid role: ${role}` }, { status: 400 })
+  }
+  if (actor.role !== "ADMIN" && role === "ADMIN") {
+    return NextResponse.json({ error: "Only administrators can modify administrator permissions" }, { status: 403 })
   }
 
   await resetRolePermissions(role as UserRole)

@@ -5,6 +5,7 @@ import "./globals.css"
 
 import { Toaster } from "@/components/ui/toaster"
 import { UserProvider } from "@/contexts/user-context"
+import { PermissionProvider } from "@/contexts/permission-context"
 
 const onest = Onest({ subsets: ["latin"] })
 
@@ -23,8 +24,10 @@ export default function RootLayout({
     <html lang="en">
       <body className={`font-sans antialiased`}>
         <UserProvider>
-          {children}
-          <Toaster />
+          <PermissionProvider>
+            {children}
+            <Toaster />
+          </PermissionProvider>
         </UserProvider>
       </body>
     </html>

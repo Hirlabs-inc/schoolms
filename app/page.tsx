@@ -14,6 +14,8 @@ export default function HomePage() {
     if (user) {
       switch (user.role) {
         case "ADMIN":
+        case "MANAGER":
+        case "SECRETARY":
           router.push("/admin")
           break
         case "TEACHER":
@@ -21,6 +23,9 @@ export default function HomePage() {
           break
         case "STUDENT":
           router.push("/student")
+          break
+        default:
+          router.push("/login")
           break
       }
     } else {
