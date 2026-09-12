@@ -6,12 +6,13 @@ ARG TURSO_TOKEN
 ARG DATABASE_URL
 WORKDIR /app
 COPY package.json package-lock.json* ./
-RUN npm install --legacy-peer-deps
+RUN npm ci --legacy-peer-deps
 COPY . .
 ENV JWT_SECRET=$JWT_SECRET
 ENV TURSO_URL=$TURSO_URL
 ENV TURSO_TOKEN=$TURSO_TOKEN
 ENV DATABASE_URL=$DATABASE_URL
+ENV NODE_OPTIONS=--max-old-space-size=2048
 RUN npm run build
 
 # ---- Runtime stage ----
