@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
 import { turso } from "@/lib/turso"
 import { verifyToken } from "@/lib/auth"
+import { DEFAULT_ROLE_PERMISSIONS, ALL_PERMISSIONS } from "@/lib/permissions"
+import type { UserRole } from "@/lib/types"
 
 // Server-side data proxy. The browser calls this (via lib/turso-client.ts)
 // instead of connecting to Turso directly. The DB token + JWT secret live only
@@ -36,6 +38,71 @@ const ALLOWED_TABLES = new Set([
   "role_permissions",
 ])
 
+// Maps table name → required permission for each operation type.
+const TABLE_PERMISSION_MAP: Record<string, { view: string; add: string; update: string; delete: string }> = {
+  students:              { view: "view_students",   add: "add_students",   update: "add_students",   delete: "delete_students"  },
+  teachers:              { view: "view_teachers",   add: "add_teachers",   update: "add_teachers",   delete: "delete_teachers"  },
+  courses:               { view: "view_courses",    add: "add_courses",    update: "add_courses",    delete: "delete_courses"   },
+  classes:               { view: "view_courses",    add: "add_courses",    update: "add_courses",    delete: "delete_courses"   },
+  exams:                 { view: "view_exams",      add: "add_exams",      update: "add_exams",      delete: "delete_exams"     },
+  exam_results:          { view: "view_results",    add: "add_results",    update: "add_results",    delete: "delete_exams"     },
+  attendance:            { view: "view_attendance", add: "view_attendance", update: "view_attendance", delete: "view_attendance"  },
+  fees:                  { view: "view_fees",       add: "manage_fees",    update: "manage_fees",    delete: "manage_fees"      },
+  payments:              { view: "view_fees",       add: "manage_fees",    update: "manage_fees",    delete: "manage_fees"      },
+  expenses:              { view: "view_expenses",   add: "add_expenses",   update: "add_expenses",   delete: "manage_fees"      },
+  income:                { view: "view_income",     add: "add_income",     update: "add_income",     delete: "manage_fees"      },
+  teacher_contracts:     { view: "view_payroll",    add: "manage_payroll", update: "manage_payroll", delete: "manage_payroll"    },
+  teacher_commissions:   { view: "view_payroll",    add: "manage_payroll", update: "manage_payroll", delete: "manage_payroll"    },
+  payroll_records:       { view: "view_payroll",    add: "manage_payroll", update: "manage_payroll", delete: "manage_payroll"    },
+  enrollment_progress:   { view: "view_reports",    add: "add_results",    update: "add_results",    delete: "view_reports"      },
+  course_teachers:       { view: "view_courses",    add: "add_courses",    update: "add_courses",    delete: "delete_courses"   },
+  institution_settings:  { view: "manage_settings", add: "manage_settings", update: "manage_settings", delete: "manage_settings" },
+  profiles:              { view: "manage_users", add: "manage_users",   update: "manage_users",   delete: "manage_users"     },
+  role_permissions:      { view: "manage_permissions", add: "manage_permissions", update: "manage_permissions", delete: "manage_permissions" },
+}
+
+/**
+ * Server-side permission check: determines if the given user role is allowed
+ * to perform `action` (view/add/update/delete) on `table`.
+ * Uses DEFAULT_ROLE_PERMISSIONS from lib/permissions.ts — the same defaults
+ * that the client-side cache is initialised from. Admin/MANAGER always pass.
+ */
+async function checkTablePermission(role: UserRole, table: string, action: "view" | "add" | "update" | "delete"): Promise<boolean> {
+  // ADMIN and MANAGER always have full access.
+  if (role === "ADMIN" || role === "MANAGER") return true
+
+  const permMap = TABLE_PERMISSION_MAP[table]
+  if (!permMap) return true // Unmapped table — allow (shouldn't happen)
+
+  const requiredPerm = permMap[action]
+  if (!requiredPerm) return true // No mapping — allow by default
+
+  // Check the hardcoded defaults.
+  const defaults = DEFAULT_ROLE_PERMISSIONS[role]
+  if (!defaults) return false
+  const defaultGranted = Boolean(defaults[requiredPerm as keyof typeof defaults] ?? false)
+
+  // Check DB overrides — these can only tighten (deny) permissions.
+  // IMPORTANT: We query role_permissions directly here (not via /api/db proxy)
+  // to avoid an infinite recursion: the proxy would call checkTablePermission,
+  // which calls this same query, which calls the proxy again...
+  // Instead we use a raw SQL query against the same turso client.
+  try {
+    const rs = await turso.execute({
+      sql: "select granted from role_permissions where role = ? and permission = ?",
+      args: [role, requiredPerm],
+    })
+    if (rs.rows.length > 0) {
+      const g = rs.rows[0] as { granted: boolean | number }
+      return Boolean(g.granted) !== false // DB says granted: false → deny; granted: true → allow
+    }
+  } catch {
+    // Table doesn't exist yet — use defaults only.
+  }
+
+  return defaultGranted
+}
+
 function normalize(sql: string): string {
   return sql
     .replace(/\s+/g, " ")
@@ -43,7 +110,7 @@ function normalize(sql: string): string {
     .toLowerCase()
 }
 
-function isSqlAllowed(rawSql: string): { ok: boolean; reason?: string } {
+function isSqlAllowed(rawSql: string): { ok: boolean; reason?: string; table?: string; action?: "view" | "add" | "update" | "delete" } {
   const sql = normalize(rawSql)
   if (!sql) return { ok: false, reason: "Empty statement" }
 
@@ -80,6 +147,13 @@ function isSqlAllowed(rawSql: string): { ok: boolean; reason?: string } {
     return { ok: false, reason: `Disallowed statement type: ${firstWord}` }
   }
 
+  // Determine action type from the SQL verb.
+  let action: "view" | "add" | "update" | "delete"
+  if (firstWord === "select") action = "view"
+  else if (firstWord === "insert") action = "add"
+  else if (firstWord === "update") action = "update"
+  else action = "delete"
+
   // Table extraction (very small parser for our known shapes).
   let table = ""
   if (firstWord === "select") {
@@ -114,7 +188,7 @@ function isSqlAllowed(rawSql: string): { ok: boolean; reason?: string } {
     }
   }
 
-  return { ok: true }
+  return { ok: true, table, action }
 }
 
 export async function POST(req: NextRequest) {
@@ -147,6 +221,12 @@ export async function POST(req: NextRequest) {
       if (!check.ok) {
         return NextResponse.json({ error: `Query rejected: ${check.reason}` }, { status: 403 })
       }
+      // Permission check for each query in the batch.
+      const batchUserRole = (user as any).role as UserRole
+      const batchAllowed = await checkTablePermission(batchUserRole, check.table ?? "", check.action ?? "view")
+      if (!batchAllowed) {
+        return NextResponse.json({ error: `Forbidden: insufficient permission for ${check.table ?? "unknown"} ${check.action ?? "view"}` }, { status: 403 })
+      }
       const args = Array.isArray(q.args) ? q.args : []
       try {
         const rs = await turso.execute({ sql: q.sql, args })
@@ -167,6 +247,16 @@ export async function POST(req: NextRequest) {
   const check = isSqlAllowed(sql)
   if (!check.ok) {
     return NextResponse.json({ error: `Query rejected: ${check.reason}` }, { status: 403 })
+  }
+
+  // Permission check: verify the user's role has the required permission
+  // for this table + action combination.
+  const userRole = (user as any).role as UserRole
+  const table = check.table ?? ""
+  const action = check.action ?? "view"
+  const allowed = await checkTablePermission(userRole, table, action)
+  if (!allowed) {
+    return NextResponse.json({ error: `Forbidden: insufficient permission for ${table} ${action}` }, { status: 403 })
   }
 
   try {
