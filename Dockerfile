@@ -8,10 +8,10 @@ WORKDIR /app
 COPY package.json pnpm-lock.yaml* ./
 RUN npm install -g pnpm@10 && pnpm install --ignore-scripts
 COPY . .
-ENV JWT_SECRET=$JWT_SECRET
+ENV JWT_SECRET=${JWT_SECRET:-trainify-jwt-secret-2026}
 ENV TURSO_URL=$TURSO_URL
 ENV TURSO_TOKEN=$TURSO_TOKEN
-ENV DATABASE_URL=$DATABASE_URL
+ENV DATABASE_URL=${DATABASE_URL:-postgres://trainify:Hirlabs@2026.@gargaar-db:5432/trainify}
 ENV NODE_OPTIONS=--max-old-space-size=2048
 RUN pnpm build
 
