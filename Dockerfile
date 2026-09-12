@@ -6,7 +6,7 @@ ARG TURSO_TOKEN
 ARG DATABASE_URL
 WORKDIR /app
 COPY package.json pnpm-lock.yaml* ./
-RUN npm install -g pnpm && pnpm install
+RUN npm install -g pnpm && pnpm install --allow-build=sharp --allow-build=unrs-resolver
 COPY . .
 ENV JWT_SECRET=$JWT_SECRET
 ENV TURSO_URL=$TURSO_URL
