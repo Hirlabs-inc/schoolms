@@ -55,6 +55,9 @@ export const ALL_PERMISSIONS = [
   { key: "add_exams",        label: "Add / Edit Exams",      group: "Academics"},
   { key: "view_results",     label: "View Exam Results",     group: "Academics"},
   { key: "add_results",      label: "Add / Edit Results",    group: "Academics"},
+  // Attendance
+  { key: "view_attendance",  label: "View Attendance",       group: "Students" },
+  { key: "manage_attendance", label: "Manage Attendance",    group: "Students" },
 ] as const
 
 export type Permission = (typeof ALL_PERMISSIONS)[number]["key"]
@@ -102,6 +105,8 @@ function _defaults(): Record<UserRole, Record<Permission, boolean>> {
     add_exams:            false,
     view_results:         true,
     add_results:          false,
+    view_attendance:      true,
+    manage_attendance:    false,
   }
 
   // TEACHER and STUDENT get only what their layouts currently expose.

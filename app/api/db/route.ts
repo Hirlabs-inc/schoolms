@@ -110,7 +110,7 @@ function normalize(sql: string): string {
     .toLowerCase()
 }
 
-function isSqlAllowed(rawSql: string): { ok: boolean; reason?: string; table?: string; action?: "view" | "add" | "update" | "delete" } {
+function isSqlAllowed(rawSql: string, role?: UserRole): { ok: boolean; reason?: string; table?: string; action?: "view" | "add" | "update" | "delete" } {
   const sql = normalize(rawSql)
   if (!sql) return { ok: false, reason: "Empty statement" }
 
@@ -174,8 +174,10 @@ function isSqlAllowed(rawSql: string): { ok: boolean; reason?: string; table?: s
     return { ok: false, reason: `Disallowed table: ${table}` }
   }
 
-  // Privilege-escalation guard: never allow raw role changes on profiles.
-  if (table === "profiles" && firstWord === "update") {
+  // Privilege-escalation guard: never allow raw role changes on profiles
+  // for non-admin roles. Admin and MANAGER can still change roles.
+  const isAdmin = role === "ADMIN" || role === "MANAGER"
+  if (table === "profiles" && firstWord === "update" && !isAdmin) {
     if (/set\s+role/.test(sql) || sql.includes("role =")) {
       return { ok: false, reason: "Role changes are not permitted via raw SQL" }
     }
@@ -217,12 +219,11 @@ export async function POST(req: NextRequest) {
       if (!q || typeof q.sql !== "string" || !q.sql.trim()) {
         return NextResponse.json({ error: "Invalid query in batch" }, { status: 400 })
       }
-      const check = isSqlAllowed(q.sql)
+      const batchUserRole = (user as any).role as UserRole
+      const check = isSqlAllowed(q.sql, batchUserRole)
       if (!check.ok) {
         return NextResponse.json({ error: `Query rejected: ${check.reason}` }, { status: 403 })
       }
-      // Permission check for each query in the batch.
-      const batchUserRole = (user as any).role as UserRole
       const batchAllowed = await checkTablePermission(batchUserRole, check.table ?? "", check.action ?? "view")
       if (!batchAllowed) {
         return NextResponse.json({ error: `Forbidden: insufficient permission for ${check.table ?? "unknown"} ${check.action ?? "view"}` }, { status: 403 })
@@ -244,14 +245,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Missing sql" }, { status: 400 })
   }
 
-  const check = isSqlAllowed(sql)
+  const userRole = (user as any).role as UserRole
+  const check = isSqlAllowed(sql, userRole)
   if (!check.ok) {
     return NextResponse.json({ error: `Query rejected: ${check.reason}` }, { status: 403 })
   }
 
   // Permission check: verify the user's role has the required permission
   // for this table + action combination.
-  const userRole = (user as any).role as UserRole
   const table = check.table ?? ""
   const action = check.action ?? "view"
   const allowed = await checkTablePermission(userRole, table, action)
