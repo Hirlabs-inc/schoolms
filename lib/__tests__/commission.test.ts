@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest"
 import { resetDb, tables } from "../../vitest.setup"
-import { createUser, computeCommissionForEnrollment, getTeacherCommissionSummaries } from "../api"
+import { createUser, computeCommissionForEnrollment, getTeacherCommissionSummaries, enrollStudentInCourse, updateItem } from "../api"
 
 async function seedAdmin() {
   const bcrypt = await import("bcryptjs")
@@ -148,5 +148,49 @@ describe("Teacher Commission generation on enrollment", () => {
     // Student counts toward both assigned teachers
     expect(s1!.totalStudentsAssigned).toBe(1)
     expect(s2!.totalStudentsAssigned).toBe(1)
+  })
+})
+
+describe("Teacher Commission is live", () => {
+  beforeEach(async () => { resetDb(); await seedAdmin() })
+
+  function seedCourse(id: string, fee: number, rate: number) {
+    tables.teachers.push({ id: "t1", staffId: "TCH1", department: "Academics" })
+    tables.profiles.push({ id: "t1", firstName: "Teach", lastName: "Er" })
+    tables.courses.push({ id, name: id, code: id.toUpperCase(), teacherId: "t1", fee, commissionRate: rate })
+    tables.course_teachers.push({ courseId: id, teacherId: "t1", createdAt: "2026-01-01" })
+  }
+
+  it("is based on the student's net (discounted) charge, not the list fee", async () => {
+    seedCourse("c1", 100000, 10)
+    await enrollStudentInCourse("s1", "c1", { discountAmount: 20000 })
+    const c = tables.teacher_commissions[0]
+    // net = 100000 - 20000 = 80000 → 10% = 8000
+    expect(Number(c.commissionAmount)).toBeCloseTo(8000)
+  })
+
+  it("updates when the fee/discount is edited afterwards", async () => {
+    seedCourse("c1", 100000, 10)
+    await enrollStudentInCourse("s1", "c1")
+    expect(Number(tables.teacher_commissions[0].commissionAmount)).toBeCloseTo(10000)
+
+    const fee = tables.fees.find((f: any) => f.feeType === "COURSE")
+    await updateItem("fees", fee.id, { discountAmount: 50000, totalFee: 50000, balance: 50000 } as any)
+
+    expect(tables.teacher_commissions).toHaveLength(1)
+    expect(Number(tables.teacher_commissions[0].commissionAmount)).toBeCloseTo(5000)
+  })
+
+  it("counts students from enrollments (multi-course) for each teacher", async () => {
+    seedCourse("c1", 100000, 10)
+    seedCourse("c2", 50000, 10)
+    await enrollStudentInCourse("s1", "c1")
+    await enrollStudentInCourse("s1", "c2")
+
+    const summaries = await getTeacherCommissionSummaries()
+    const t1 = summaries.find(s => s.teacherId === "t1")!
+    expect(t1.totalStudentsAssigned).toBe(2)
+    // 100000*10% + 50000*10% = 15000
+    expect(t1.totalCommissionEarned).toBeCloseTo(15000)
   })
 })

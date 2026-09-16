@@ -545,6 +545,14 @@ export async function addItem<T extends Record<string, any>>(key: string, item: 
   if (key === "payments" && (data as any).studentId) {
     await recomputeFeeForStudent((data as any).studentId)
   }
+  // Keep teacher commissions live when a course charge is assigned/edited.
+  if (key === "fees" && (data as any).studentId) {
+    try { await recomputeCommissionsForStudent((data as any).studentId) } catch { /* ignore */ }
+  }
+  // A manually added enrollment should earn commission too.
+  if (key === "enrollmentProgress" && (data as any).studentId && (data as any).courseId) {
+    try { await computeCommissionForEnrollment((data as any).studentId, (data as any).courseId) } catch { /* ignore */ }
+  }
 
   return data as T
 }
@@ -578,6 +586,15 @@ export async function updateItem<T>(key: string, id: string, updates: Partial<T>
 
   if (key === "payments" && studentId) {
     await recomputeFeeForStudent(studentId)
+  }
+  // Keep teacher commissions live when a course charge is edited.
+  if (key === "fees") {
+    const sid = (rs.rows[0] as any)?.studentId
+    if (sid) { try { await recomputeCommissionsForStudent(sid) } catch { /* ignore */ } }
+  }
+  // Course fee/rate changes affect every enrolled student's commission.
+  if (key === "courses") {
+    try { await recomputeCommissionsForCourse(id) } catch { /* ignore */ }
   }
 
   return rs.rows[0] as T
@@ -1034,6 +1051,8 @@ export async function recomputeFeeForStudent(studentId: string): Promise<{ credi
       args: [balance, status, fee.id],
     })
   }
+  // Keep teacher commissions in step with the student's current charges.
+  try { await recomputeCommissionsForStudent(studentId) } catch { /* ignore */ }
   return { credit: round2(credit) }
 }
 
@@ -1206,6 +1225,8 @@ export async function assignTeacherToCourse(courseId: string, teacherId: string)
     sql: "insert or ignore into course_teachers (courseId, teacherId, createdAt) values (?, ?, ?)",
     args: [courseId, teacherId, new Date().toISOString()],
   })
+  // A newly assigned teacher should start earning on existing enrollments.
+  try { await recomputeCommissionsForCourse(courseId) } catch { /* ignore */ }
 }
 
 export async function removeTeacherFromCourse(courseId: string, teacherId: string): Promise<void> {
@@ -1216,6 +1237,16 @@ export async function removeTeacherFromCourse(courseId: string, teacherId: strin
   })
 }
 
+/** The student's current net charge for a course (after discount/tax), or null. */
+async function studentCourseNetFee(studentId: string, courseId: string): Promise<number | null> {
+  const rs = await turso.execute({
+    sql: "select totalFee from fees where studentId = ? and courseId = ? and feeType = 'COURSE' and status != 'CANCELLED' order by createdAt asc limit 1",
+    args: [studentId, courseId],
+  })
+  const row = rs.rows[0] as any
+  return row ? Number(row.totalFee) || 0 : null
+}
+
 async function commissionForTeacher(
   teacherId: string,
   studentId: string,
@@ -1223,8 +1254,12 @@ async function commissionForTeacher(
   course: any
 ): Promise<number> {
   const rate = Number(course.commissionRate) || 0
-  const fee = Number(course.fee) || 0
-  const percentPortion = (rate / 100) * fee
+  // Commission is based on what the student is actually charged for the course
+  // (net of discount/tax), falling back to the course list fee when no charge
+  // exists yet. This keeps commissions in step with fee/discount edits.
+  const netFee = await studentCourseNetFee(studentId, courseId)
+  const baseFee = netFee !== null ? netFee : (Number(course.fee) || 0)
+  const percentPortion = (rate / 100) * baseFee
   // Per-student fixed amount from the teacher's commission contract
   let perStudentFixed = 0
   const contractRs = await turso.execute({
@@ -1234,13 +1269,29 @@ async function commissionForTeacher(
   const contract = contractRs.rows[0] as any
   if (contract?.commissionPerStudent) perStudentFixed = Number(contract.commissionPerStudent) || 0
 
-  const commissionAmount = percentPortion + perStudentFixed
+  const commissionAmount = round2(percentPortion + perStudentFixed)
   if (commissionAmount <= 0) return 0
 
-  await turso.execute({
-    sql: "insert into teacher_commissions (id, teacherId, studentId, courseId, commissionRate, commissionAmount, paidAmount, status, createdAt) values (?, ?, ?, ?, ?, ?, 0, 'EARNED', ?)",
-    args: [crypto.randomUUID(), teacherId, studentId, courseId, rate, commissionAmount, new Date().toISOString()],
+  // Upsert so re-enrollment / fee edits refresh the amount while preserving
+  // whatever has already been paid out to the teacher.
+  const existingRs = await turso.execute({
+    sql: "select id, paidAmount from teacher_commissions where teacherId = ? and studentId = ? and courseId = ? limit 1",
+    args: [teacherId, studentId, courseId],
   })
+  const existing = existingRs.rows[0] as any
+  if (existing) {
+    const paid = Number(existing.paidAmount) || 0
+    const status = paid <= 0 ? "EARNED" : paid >= commissionAmount ? "PAID" : "PARTIAL"
+    await turso.execute({
+      sql: "update teacher_commissions set commissionRate = ?, commissionAmount = ?, status = ? where id = ?",
+      args: [rate, commissionAmount, status, existing.id],
+    })
+  } else {
+    await turso.execute({
+      sql: "insert into teacher_commissions (id, teacherId, studentId, courseId, commissionRate, commissionAmount, paidAmount, status, createdAt) values (?, ?, ?, ?, ?, ?, 0, 'EARNED', ?)",
+      args: [crypto.randomUUID(), teacherId, studentId, courseId, rate, commissionAmount, new Date().toISOString()],
+    })
+  }
   return commissionAmount
 }
 
@@ -1249,22 +1300,47 @@ export async function computeCommissionForEnrollment(studentId: string, courseId
   const course = courseRs.rows[0] as any
   if (!course) throw new Error("Commission configuration unavailable for course")
 
-  // Idempotency: skip if a commission already exists for this student + course
-  const existingRs = await turso.execute({
-    sql: "select id from teacher_commissions where studentId = ? and courseId = ?",
-    args: [studentId, courseId],
-  })
-  if (existingRs.rows.length > 0) {
-    return { success: true, commissionAmount: 0, alreadyExists: true }
-  }
-
-  // Pay every teacher assigned to the course (per-student commission).
+  // Pay every teacher assigned to the course (per-student commission). This is
+  // an upsert, so calling it again refreshes stale amounts.
   const teacherIds = await getCourseTeachers(courseId)
   let total = 0
   for (const tid of teacherIds) {
     total += await commissionForTeacher(tid, studentId, courseId, course)
   }
   return { success: true, commissionAmount: total }
+}
+
+/**
+ * Recompute a student's commissions from their current enrollments and charges.
+ * Called whenever their fees/discounts change so the payroll view stays live.
+ */
+export async function recomputeCommissionsForStudent(studentId: string): Promise<void> {
+  const rs = await turso.execute({
+    sql: "select courseId from enrollment_progress where studentId = ?",
+    args: [studentId],
+  })
+  for (const r of rs.rows as any[]) {
+    try {
+      await computeCommissionForEnrollment(studentId, r.courseId)
+    } catch {
+      // Missing commission config or insufficient rights — leave as is.
+    }
+  }
+}
+
+/** Recompute commissions for every student enrolled in a course (fee/rate/teacher edits). */
+export async function recomputeCommissionsForCourse(courseId: string): Promise<void> {
+  const rs = await turso.execute({
+    sql: "select studentId from enrollment_progress where courseId = ?",
+    args: [courseId],
+  })
+  for (const r of rs.rows as any[]) {
+    try {
+      await computeCommissionForEnrollment(r.studentId, courseId)
+    } catch {
+      // Missing commission config or insufficient rights — leave as is.
+    }
+  }
 }
 
 export async function getTeacherCommissionSummaries(teacherId?: string): Promise<TeacherCommissionSummary[]> {
@@ -1315,7 +1391,7 @@ export async function getTeacherCommissionSummaries(teacherId?: string): Promise
   let studentCountByCourse = new Map<string, number>()
   if (uniqueCourseIds.length) {
     const studentRs = await turso.execute({
-      sql: `select courseId, count(*) as cnt from students where courseId in (${placeholders(uniqueCourseIds.length)}) group by courseId`,
+      sql: `select courseId, count(*) as cnt from enrollment_progress where courseId in (${placeholders(uniqueCourseIds.length)}) group by courseId`,
       args: uniqueCourseIds,
     })
     for (const r of studentRs.rows as any[]) {
@@ -1413,7 +1489,7 @@ export async function getTeacherCommissionBreakdown(): Promise<TeacherCommission
   if (uniqueCourseIds.length) {
     const [courses, students] = await Promise.all([
       turso.execute({ sql: `select id, name from courses where id in (${placeholders(uniqueCourseIds.length)})`, args: uniqueCourseIds }),
-      turso.execute({ sql: `select courseId, count(*) as cnt from students where courseId in (${placeholders(uniqueCourseIds.length)}) group by courseId`, args: uniqueCourseIds }),
+      turso.execute({ sql: `select courseId, count(*) as cnt from enrollment_progress where courseId in (${placeholders(uniqueCourseIds.length)}) group by courseId`, args: uniqueCourseIds }),
     ])
     courseNameMap = indexRows(courses.rows)
     for (const r of students.rows as any[]) {
