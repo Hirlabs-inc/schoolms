@@ -11,7 +11,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
-import { getItems, addItem, updateItem, deleteItem, processPayroll, getTeacherCommissionSummaries, getTeacherCommissionBreakdown, recordCommissionPayment, type TeacherCommissionCourseRow } from "@/lib/api"
+import { getItems, addItem, updateItem, deleteItem, processPayroll, getTeacherCommissionSummaries, getTeacherCommissionBreakdown, recordCommissionPayment, recomputeAllCommissions, type TeacherCommissionCourseRow } from "@/lib/api"
 import type { Teacher, TeacherContract, PayrollRecord, InstitutionSettings, EnrollmentProgress, Course, Student, TeacherCommissionSummary } from "@/lib/types"
 import { Plus, Trash2, Loader2, Pencil, Wallet, Calendar } from "lucide-react"
 import { useEffect, useState, Fragment } from "react"
@@ -49,8 +49,13 @@ export default function PayrollPage() {
 
   useEffect(() => { loadData() }, [])
 
-  const loadCommissionSummaries = async () => {
+  const loadCommissionSummaries = async (recompute = true) => {
     try {
+      // Bring stored commission rows in line with current fees/discounts/rates
+      // before reading them, so the view is always live.
+      if (recompute) {
+        try { await recomputeAllCommissions() } catch { /* ignore */ }
+      }
       const [summaries, breakdown] = await Promise.all([
         getTeacherCommissionSummaries(),
         getTeacherCommissionBreakdown(),
@@ -465,7 +470,7 @@ export default function PayrollPage() {
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <div><CardTitle>Teacher Commission</CardTitle><CardDescription>Commission earned per teacher and per assigned course (click a teacher to expand course breakdown)</CardDescription></div>
-                  <Button variant="outline" onClick={loadCommissionSummaries}><Loader2 className="h-4 w-4 mr-2" />Refresh</Button>
+                  <Button variant="outline" onClick={() => loadCommissionSummaries()}><Loader2 className="h-4 w-4 mr-2" />Refresh</Button>
                 </div>
               </CardHeader>
               <CardContent>

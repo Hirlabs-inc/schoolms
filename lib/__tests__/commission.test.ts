@@ -193,4 +193,20 @@ describe("Teacher Commission is live", () => {
     // 100000*10% + 50000*10% = 15000
     expect(t1.totalCommissionEarned).toBeCloseTo(15000)
   })
+
+  it("falls back to the teacher contract's rate when the course has none", async () => {
+    tables.teachers.push({ id: "t1", staffId: "TCH1" })
+    tables.profiles.push({ id: "t1", firstName: "Teach", lastName: "Er" })
+    // Course has no commissionRate — the rate lives on the contract.
+    tables.courses.push({ id: "c1", name: "Math", code: "MTH", teacherId: "t1", fee: 100000 })
+    tables.course_teachers.push({ courseId: "c1", teacherId: "t1", createdAt: "2026-01-01" })
+    tables.teacher_contracts.push({
+      id: "ctr1", teacherId: "t1", compensationType: "COMMISSION",
+      commissionRate: 12, commissionPerStudent: 0, status: "ACTIVE",
+    })
+
+    await enrollStudentInCourse("s1", "c1")
+    // 100000 * 12% = 12000
+    expect(Number(tables.teacher_commissions[0].commissionAmount)).toBeCloseTo(12000)
+  })
 })

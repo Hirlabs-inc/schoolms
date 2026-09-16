@@ -1253,20 +1253,24 @@ async function commissionForTeacher(
   courseId: string,
   course: any
 ): Promise<number> {
-  const rate = Number(course.commissionRate) || 0
+  // The rate can be configured on the course or on the teacher's commission
+  // contract; the course value wins when both are set.
+  const contractRs = await turso.execute({
+    sql: "select commissionRate, commissionPerStudent from teacher_contracts where teacherId = ? and compensationType = 'COMMISSION' and status = 'ACTIVE' order by createdAt desc limit 1",
+    args: [teacherId],
+  })
+  const contract = contractRs.rows[0] as any
+  const rate = Number(course.commissionRate) || Number(contract?.commissionRate) || 0
+
   // Commission is based on what the student is actually charged for the course
   // (net of discount/tax), falling back to the course list fee when no charge
   // exists yet. This keeps commissions in step with fee/discount edits.
   const netFee = await studentCourseNetFee(studentId, courseId)
   const baseFee = netFee !== null ? netFee : (Number(course.fee) || 0)
   const percentPortion = (rate / 100) * baseFee
+
   // Per-student fixed amount from the teacher's commission contract
   let perStudentFixed = 0
-  const contractRs = await turso.execute({
-    sql: "select commissionPerStudent from teacher_contracts where teacherId = ? and compensationType = 'COMMISSION' and status = 'ACTIVE' order by createdAt desc limit 1",
-    args: [teacherId],
-  })
-  const contract = contractRs.rows[0] as any
   if (contract?.commissionPerStudent) perStudentFixed = Number(contract.commissionPerStudent) || 0
 
   const commissionAmount = round2(percentPortion + perStudentFixed)
@@ -1337,6 +1341,19 @@ export async function recomputeCommissionsForCourse(courseId: string): Promise<v
   for (const r of rs.rows as any[]) {
     try {
       await computeCommissionForEnrollment(r.studentId, courseId)
+    } catch {
+      // Missing commission config or insufficient rights — leave as is.
+    }
+  }
+}
+
+/** Recompute every enrollment's commission. Used by the Payroll "Refresh" action. */
+export async function recomputeAllCommissions(): Promise<void> {
+  requireAuth()
+  const rs = await turso.execute({ sql: "select studentId, courseId from enrollment_progress" })
+  for (const r of rs.rows as any[]) {
+    try {
+      await computeCommissionForEnrollment(r.studentId, r.courseId)
     } catch {
       // Missing commission config or insufficient rights — leave as is.
     }
