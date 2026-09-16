@@ -14,7 +14,7 @@ import { Badge } from "@/components/ui/badge"
 import { getItems, addItem, updateItem, deleteItem, processPayroll, getTeacherCommissionSummaries, getTeacherCommissionBreakdown, recordCommissionPayment, type TeacherCommissionCourseRow } from "@/lib/api"
 import type { Teacher, TeacherContract, PayrollRecord, InstitutionSettings, EnrollmentProgress, Course, Student, TeacherCommissionSummary } from "@/lib/types"
 import { Plus, Trash2, Loader2, Pencil, Wallet, Calendar } from "lucide-react"
-import { useEffect, useState } from "react"
+import { useEffect, useState, Fragment } from "react"
 import { usePagination } from "@/hooks/use-pagination"
 import { DataPagination } from "@/components/data-pagination"
 
@@ -477,8 +477,8 @@ export default function PayrollPage() {
                     {commissionSummaries.length === 0 ? (
                       <TableRow><TableCell colSpan={6} className="text-center h-24 text-muted-foreground">No commission summaries</TableCell></TableRow>
                     ) : commissionsPag.pageItems.map((s) => (
-                      <>
-                        <TableRow key={s.teacherId} className="cursor-pointer hover:bg-muted/50" onClick={() => setExpandedTeacher(expandedTeacher === s.teacherId ? null : s.teacherId)}>
+                      <Fragment key={s.teacherId}>
+                        <TableRow className="cursor-pointer hover:bg-muted/50" onClick={() => setExpandedTeacher(expandedTeacher === s.teacherId ? null : s.teacherId)}>
                           <TableCell className="font-medium">
                             <span className="mr-2 text-muted-foreground">{expandedTeacher === s.teacherId ? "▾" : "▸"}</span>
                             {s.teacherName}
@@ -518,7 +518,7 @@ export default function PayrollPage() {
                             </TableCell>
                           </TableRow>
                         )}
-                      </>
+                      </Fragment>
                     ))}
                   </TableBody>
                 </Table>
