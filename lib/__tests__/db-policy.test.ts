@@ -57,6 +57,16 @@ describe("db-policy - checkTablePermission", () => {
     expect(await checkTablePermission("TEACHER", "profiles", "update")).toBe(false)
   })
 
+  it("secretary can read profiles and institution settings (student list + finance config)", async () => {
+    expect(await checkTablePermission("SECRETARY", "profiles", "view")).toBe(true)
+    expect(await checkTablePermission("SECRETARY", "institution_settings", "view")).toBe(true)
+  })
+
+  it("secretary can delete students and their auto-created commissions", async () => {
+    expect(await checkTablePermission("SECRETARY", "students", "delete")).toBe(true)
+    expect(await checkTablePermission("SECRETARY", "teacher_commissions", "delete")).toBe(true)
+  })
+
   it("student cannot read students", async () => {
     expect(await checkTablePermission("STUDENT", "students", "view")).toBe(false)
   })

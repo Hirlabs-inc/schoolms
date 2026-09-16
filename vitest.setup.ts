@@ -55,6 +55,9 @@ const tables: Record<string, any[]> = {
   payroll_records: [],
   enrollment_progress: [],
   institution_settings: [],
+  teacher_commissions: [],
+  course_teachers: [],
+  role_permissions: [],
 }
 
 /** Strip trailing GROUP BY / ORDER BY / LIMIT. */

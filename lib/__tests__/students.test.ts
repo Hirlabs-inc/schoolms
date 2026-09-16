@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest"
 import { resetDb, tables } from "../../vitest.setup"
-import { getItems, addItem, updateItem, deleteItem, createUser } from "../api"
+import { getItems, addItem, updateItem, deleteItem, deleteStudent, createUser } from "../api"
 
 async function seedAdmin() {
   const bcrypt = await import("bcryptjs")
@@ -92,6 +92,20 @@ describe("Students - CRUD", () => {
     tables.students.push({ id: "s1", studentNumber: "STU001" })
     await deleteItem("students", "s1")
     expect(tables.students).toHaveLength(0)
+  })
+
+  it("deleteStudent cascades fees, payments, enrollments and commissions", async () => {
+    tables.students.push({ id: "s1", studentNumber: "STU001" })
+    tables.fees.push({ id: "f1", studentId: "s1", courseId: "c1", totalFee: 1000, balance: 1000 })
+    tables.payments.push({ id: "p1", studentId: "s1", feeId: "f1", amount: 500, receiptNumber: "R1" })
+    tables.enrollment_progress.push({ id: "e1", studentId: "s1", courseId: "c1" })
+    tables.teacher_commissions.push({ id: "tc1", studentId: "s1", courseId: "c1", teacherId: "t1" })
+    await deleteStudent("s1")
+    expect(tables.students).toHaveLength(0)
+    expect(tables.fees).toHaveLength(0)
+    expect(tables.payments).toHaveLength(0)
+    expect(tables.enrollment_progress).toHaveLength(0)
+    expect(tables.teacher_commissions).toHaveLength(0)
   })
 })
 

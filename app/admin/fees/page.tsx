@@ -25,6 +25,8 @@ import type { Student, Fee, Payment, Course, InstitutionSettings, Income, FeeTyp
 import { VisuallyHidden } from "@radix-ui/react-visually-hidden"
 import { DollarSign, Plus, Trash2, Loader2, Printer, Search, Pencil } from "lucide-react"
 import { useEffect, useState } from "react"
+import { usePagination } from "@/hooks/use-pagination"
+import { DataPagination } from "@/components/data-pagination"
 
 function generateReceiptNumber(): string {
   const date = new Date()
@@ -440,6 +442,9 @@ export default function FeesPage() {
     return statusBadge(fee.status)
   }
 
+  const feesPag = usePagination(fees, 10)
+  const paymentsPag = usePagination(payments, 10)
+
   if (isLoading) {
     return (
       <div className="flex justify-center py-16"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>
@@ -583,7 +588,7 @@ export default function FeesPage() {
                     {fees.length === 0 ? (
                       <TableRow><TableCell colSpan={7} className="text-center h-24 text-muted-foreground">No fees assigned yet</TableCell></TableRow>
                     ) : (
-                      fees.map((fee) => {
+                      feesPag.pageItems.map((fee) => {
                         const paid = Number(fee.totalFee) - Number(fee.balance)
                         return (
                           <TableRow key={fee.id} className={feeRowClasses(fee)}>
@@ -616,6 +621,7 @@ export default function FeesPage() {
                     )}
                   </TableBody>
                 </Table>
+                <DataPagination page={feesPag.page} pageCount={feesPag.pageCount} total={feesPag.total} pageSize={feesPag.pageSize} onPageChange={feesPag.setPage} />
               </CardContent>
             </Card>
           </TabsContent>
@@ -642,7 +648,7 @@ export default function FeesPage() {
                     {payments.length === 0 ? (
                       <TableRow><TableCell colSpan={6} className="text-center h-24 text-muted-foreground">No payments recorded yet</TableCell></TableRow>
                     ) : (
-                      payments.map((p) => (
+                      paymentsPag.pageItems.map((p) => (
                         <TableRow key={p.id}>
                           <TableCell className="font-mono text-xs">{p.receiptNumber}</TableCell>
                           <TableCell className="font-medium">{getStudentName(p.studentId)}</TableCell>
@@ -671,6 +677,7 @@ export default function FeesPage() {
                     )}
                   </TableBody>
                 </Table>
+                <DataPagination page={paymentsPag.page} pageCount={paymentsPag.pageCount} total={paymentsPag.total} pageSize={paymentsPag.pageSize} onPageChange={paymentsPag.setPage} />
               </CardContent>
             </Card>
           </TabsContent>

@@ -22,6 +22,8 @@ import { getItems, addItem, updateItem, deleteItem } from "@/lib/api"
 import type { Expense, InstitutionSettings } from "@/lib/types"
 import { DollarSign, Plus, Trash2, Loader2, Search, Pencil } from "lucide-react"
 import { useEffect, useState } from "react"
+import { usePagination } from "@/hooks/use-pagination"
+import { DataPagination } from "@/components/data-pagination"
 
 const EXPENSE_CATEGORIES = [
   "RENT", "SALARIES", "INTERNET", "ELECTRICITY", "MARKETING",
@@ -126,6 +128,8 @@ export default function ExpensesPage() {
     const matchesCategory = categoryFilter === "all" || e.category === categoryFilter
     return matchesSearch && matchesCategory
   })
+
+  const expPag = usePagination(filteredExpenses, 10)
 
   if (isLoading) {
     return (
@@ -239,10 +243,10 @@ export default function ExpensesPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredExpenses.length === 0 ? (
+                {expPag.total === 0 ? (
                   <TableRow><TableCell colSpan={6} className="text-center h-24 text-muted-foreground">No expenses recorded</TableCell></TableRow>
                 ) : (
-                  filteredExpenses.map((e) => (
+                  expPag.pageItems.map((e) => (
                     <TableRow key={e.id}>
                       <TableCell>{e.expenseDate}</TableCell>
                       <TableCell><Badge variant="outline">{e.category.replace("_", " ")}</Badge></TableCell>
@@ -264,6 +268,7 @@ export default function ExpensesPage() {
                 )}
               </TableBody>
             </Table>
+            <DataPagination page={expPag.page} pageCount={expPag.pageCount} total={expPag.total} pageSize={expPag.pageSize} onPageChange={expPag.setPage} />
           </CardContent>
         </Card>
   </>

@@ -81,7 +81,7 @@ function _defaults(): Record<UserRole, Record<Permission, boolean>> {
     view_dashboard:       true,
     view_students:        true,
     add_students:         true,
-    delete_students:      false,
+    delete_students:      true,
     view_courses:         true,
     add_courses:          false,
     delete_courses:       false,

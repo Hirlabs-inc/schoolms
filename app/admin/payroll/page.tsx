@@ -15,6 +15,8 @@ import { getItems, addItem, updateItem, deleteItem, processPayroll, getTeacherCo
 import type { Teacher, TeacherContract, PayrollRecord, InstitutionSettings, EnrollmentProgress, Course, Student, TeacherCommissionSummary } from "@/lib/types"
 import { Plus, Trash2, Loader2, Pencil, Wallet, Calendar } from "lucide-react"
 import { useEffect, useState } from "react"
+import { usePagination } from "@/hooks/use-pagination"
+import { DataPagination } from "@/components/data-pagination"
 
 export default function PayrollPage() {
   const [contracts, setContracts] = useState<TeacherContract[]>([])
@@ -179,6 +181,10 @@ export default function PayrollPage() {
 
   const activeContracts = contracts.filter(c => c.status === "ACTIVE")
 
+  const contractsPag = usePagination(contracts, 10)
+  const payrollPag = usePagination(payrollRecords, 10)
+  const commissionsPag = usePagination(commissionSummaries, 10)
+
   if (isLoading) {
     return (
       <div className="flex justify-center py-16"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>
@@ -289,7 +295,7 @@ export default function PayrollPage() {
                   <TableBody>
                     {contracts.length === 0 ? (
                       <TableRow><TableCell colSpan={6} className="text-center h-24 text-muted-foreground">No contracts</TableCell></TableRow>
-                    ) : contracts.map((c) => (
+                    ) : contractsPag.pageItems.map((c) => (
                       <TableRow key={c.id}>
                         <TableCell className="font-medium">{c.teacherName || teacherName(c.teacherId)}</TableCell>
                         <TableCell><Badge variant="outline">{c.compensationType}</Badge></TableCell>
@@ -324,6 +330,7 @@ export default function PayrollPage() {
                     ))}
                   </TableBody>
                 </Table>
+                <DataPagination page={contractsPag.page} pageCount={contractsPag.pageCount} total={contractsPag.total} pageSize={contractsPag.pageSize} onPageChange={contractsPag.setPage} />
               </CardContent>
             </Card>
           </TabsContent>
@@ -413,7 +420,7 @@ export default function PayrollPage() {
                   <TableBody>
                     {payrollRecords.length === 0 ? (
                       <TableRow><TableCell colSpan={7} className="text-center h-24 text-muted-foreground">No payroll records</TableCell></TableRow>
-                    ) : payrollRecords.map((r) => (
+                    ) : payrollPag.pageItems.map((r) => (
                       <TableRow key={r.id}>
                         <TableCell>{r.payDate}</TableCell>
                         <TableCell className="font-medium">{r.teacherName || teacherName(r.teacherId)}</TableCell>
@@ -432,6 +439,7 @@ export default function PayrollPage() {
                     ))}
                   </TableBody>
                 </Table>
+                <DataPagination page={payrollPag.page} pageCount={payrollPag.pageCount} total={payrollPag.total} pageSize={payrollPag.pageSize} onPageChange={payrollPag.setPage} />
               </CardContent>
             </Card>
           </TabsContent>
@@ -468,7 +476,7 @@ export default function PayrollPage() {
                   <TableBody>
                     {commissionSummaries.length === 0 ? (
                       <TableRow><TableCell colSpan={6} className="text-center h-24 text-muted-foreground">No commission summaries</TableCell></TableRow>
-                    ) : commissionSummaries.map((s) => (
+                    ) : commissionsPag.pageItems.map((s) => (
                       <>
                         <TableRow key={s.teacherId} className="cursor-pointer hover:bg-muted/50" onClick={() => setExpandedTeacher(expandedTeacher === s.teacherId ? null : s.teacherId)}>
                           <TableCell className="font-medium">
@@ -514,6 +522,7 @@ export default function PayrollPage() {
                     ))}
                   </TableBody>
                 </Table>
+                <DataPagination page={commissionsPag.page} pageCount={commissionsPag.pageCount} total={commissionsPag.total} pageSize={commissionsPag.pageSize} onPageChange={commissionsPag.setPage} />
               </CardContent>
             </Card>
 

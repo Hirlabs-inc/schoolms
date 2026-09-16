@@ -22,6 +22,8 @@ import { getItems, addItem, updateItem, deleteItem, getCourseTeachers, assignTea
 import type { Course, Student, Fee, Exam, InstitutionSettings, Teacher } from "@/lib/types"
 import { Plus, Trash2, Pencil, Search, Filter, Loader2, AlertTriangle, Users } from "lucide-react"
 import { useEffect, useState } from "react"
+import { usePagination } from "@/hooks/use-pagination"
+import { DataPagination } from "@/components/data-pagination"
 
 export default function CoursesPage() {
   const [courses, setCourses] = useState<Course[]>([])
@@ -188,6 +190,7 @@ export default function CoursesPage() {
     c.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     c.code.toLowerCase().includes(searchTerm.toLowerCase())
   )
+  const coursesPag = usePagination(filteredCourses, 10)
 
   return (
         <Card>
@@ -231,14 +234,14 @@ export default function CoursesPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredCourses.length === 0 ? (
+                    {coursesPag.total === 0 ? (
                       <TableRow>
                         <TableCell colSpan={6} className="text-center h-24 text-muted-foreground">
                           No courses found
                         </TableCell>
                       </TableRow>
                     ) : (
-                      filteredCourses.map((course) => (
+                      coursesPag.pageItems.map((course) => (
                         <TableRow key={course.id}>
                           <TableCell className="font-medium">{course.name}</TableCell>
                           <TableCell>
@@ -286,6 +289,7 @@ export default function CoursesPage() {
                     )}
                   </TableBody>
                 </Table>
+                <DataPagination page={coursesPag.page} pageCount={coursesPag.pageCount} total={coursesPag.total} pageSize={coursesPag.pageSize} onPageChange={coursesPag.setPage} />
               </>
             )}
 

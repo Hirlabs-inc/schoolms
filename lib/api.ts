@@ -577,6 +577,8 @@ export async function deleteStudent(id: string): Promise<void> {
   await turso.execute({ sql: "delete from attendance where \"studentId\" = ?", args: [id] })
   // 3. Delete enrollment progress records
   await turso.execute({ sql: "delete from enrollment_progress where \"studentId\" = ?", args: [id] })
+  // 3b. Delete teacher commissions earned from this student's enrollments
+  await turso.execute({ sql: "delete from teacher_commissions where \"studentId\" = ?", args: [id] })
   // 4. Delete payments linked to this student's fees (capture receipts first so
   //    we can remove the corresponding income records)
   const payRs = await turso.execute({ sql: "select receiptNumber from payments where \"studentId\" = ?", args: [id] })
@@ -652,7 +654,7 @@ export async function createUser(userData: any) {
           ? [userData.courseId]
           : []
     )
-    await syncStudentEnrollments(userId, courseIds, { dueDate: userData.dueDate })
+    await syncStudentEnrollments(userId, courseIds, { dueDate: userData.dueDate, discountByCourse: userData.discountByCourse })
   } else if (userData.role === "TEACHER") {
     await turso.execute({
       sql: "insert into teachers (id, staffId, department, specialization, firstName, lastName) values (?, ?, ?, ?, ?, ?)",
@@ -720,7 +722,7 @@ export async function registerStudent(userData: any) {
         ? [userData.courseId]
         : []
   )
-  await syncStudentEnrollments(userId, courseIds, { dueDate: userData.dueDate })
+  await syncStudentEnrollments(userId, courseIds, { dueDate: userData.dueDate, discountByCourse: userData.discountByCourse })
 
   return { success: true, userId }
 }

@@ -22,6 +22,8 @@ import { AuthGuard } from "@/components/auth-guard"
 import type { User, UserRole, Teacher } from "@/lib/types"
 import { Plus, Trash2, Download, Loader2, Pencil } from "lucide-react"
 import { useEffect, useState } from "react"
+import { usePagination } from "@/hooks/use-pagination"
+import { DataPagination } from "@/components/data-pagination"
 
 const STAFF_ROLES: UserRole[] = ["ADMIN", "TEACHER", "SECRETARY", "MANAGER"]
 
@@ -198,6 +200,8 @@ export default function UsersPage() {
 
   const editingSelf = !!editingUser && editingUser.id === currentUserId
 
+  const usersPag = usePagination(users, 10)
+
   return (
     <AuthGuard allowedRoles={["ADMIN", "MANAGER"]}>
       <Card>
@@ -372,7 +376,7 @@ export default function UsersPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {users.map((user) => {
+                {usersPag.pageItems.map((user) => {
                   const self = isSelf(user)
                   const manageable = canManage(user)
                   return (
@@ -422,6 +426,7 @@ export default function UsersPage() {
               </TableBody>
             </Table>
           )}
+          <DataPagination page={usersPag.page} pageCount={usersPag.pageCount} total={usersPag.total} pageSize={usersPag.pageSize} onPageChange={usersPag.setPage} />
         </CardContent>
       </Card>
     </AuthGuard>

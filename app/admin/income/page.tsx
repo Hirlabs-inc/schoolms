@@ -14,6 +14,8 @@ import { getItems, addItem, updateItem, deleteItem, getIncomeSummary } from "@/l
 import type { Income, Payment, InstitutionSettings } from "@/lib/types"
 import { TrendingUp, Plus, Trash2, Loader2, Search, Pencil } from "lucide-react"
 import { useEffect, useState } from "react"
+import { usePagination } from "@/hooks/use-pagination"
+import { DataPagination } from "@/components/data-pagination"
 
 const INCOME_CATEGORIES = ["FEES", "GRANTS", "DONATIONS", "OTHER"] as const
 
@@ -95,6 +97,7 @@ export default function IncomePage() {
 
   const totalAll = incomeList.reduce((s, i) => s + Number(i.amount), 0)
   const filtered = incomeList.filter(i => i.description.toLowerCase().includes(searchTerm.toLowerCase()))
+  const incPag = usePagination(filtered, 10)
 
   if (isLoading) {
     return (
@@ -172,9 +175,9 @@ export default function IncomePage() {
                 <TableRow><TableHead>Date</TableHead><TableHead>Category</TableHead><TableHead>Description</TableHead><TableHead>Amount</TableHead><TableHead>Receipt</TableHead><TableHead className="text-right">Actions</TableHead></TableRow>
               </TableHeader>
               <TableBody>
-                {filtered.length === 0 ? (
+                {incPag.total === 0 ? (
                   <TableRow><TableCell colSpan={6} className="text-center h-24 text-muted-foreground">No income recorded</TableCell></TableRow>
-                ) : filtered.map((i) => (
+                ) : incPag.pageItems.map((i) => (
                   <TableRow key={i.id}>
                     <TableCell>{i.incomeDate}</TableCell>
                     <TableCell><Badge>{i.category}</Badge></TableCell>
@@ -195,6 +198,7 @@ export default function IncomePage() {
                 ))}
               </TableBody>
             </Table>
+            <DataPagination page={incPag.page} pageCount={incPag.pageCount} total={incPag.total} pageSize={incPag.pageSize} onPageChange={incPag.setPage} />
           </CardContent>
         </Card>
   </>

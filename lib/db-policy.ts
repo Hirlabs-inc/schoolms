@@ -48,16 +48,20 @@ export const TABLE_PERMISSION_MAP: Record<string, Record<SqlAction, PermissionRe
   expenses:              { view: "view_expenses",   add: "add_expenses",   update: "add_expenses",   delete: "manage_fees"      },
   income:                { view: "view_income",     add: "add_income",     update: "add_income",     delete: "manage_fees"      },
   teacher_contracts:     { view: "view_payroll",    add: "manage_payroll", update: "manage_payroll", delete: "manage_payroll"    },
-  teacher_commissions:   { view: "view_payroll",    add: "manage_payroll", update: "manage_payroll", delete: "manage_payroll"    },
   payroll_records:       { view: "view_payroll",    add: "manage_payroll", update: "manage_payroll", delete: "manage_payroll"    },
   // Enrollment records are written by student management (add_students) and by
   // the progress page (add_results). Either permission is sufficient.
   enrollment_progress:   { view: "view_reports",    add: ["add_results", "add_students"], update: ["add_results", "add_students"], delete: ["view_reports", "add_students"] },
   course_teachers:       { view: "view_courses",    add: "add_courses",    update: "add_courses",    delete: "delete_courses"   },
-  institution_settings:  { view: "manage_settings", add: "manage_settings", update: "manage_settings", delete: "manage_settings" },
-  // Profile name/email edits happen while editing students/teachers, so those
-  // roles may perform them. Role escalation is blocked separately.
-  profiles:              { view: "manage_users", add: "manage_users",   update: ["manage_users", "add_students", "add_teachers"], delete: "manage_users" },
+  // Institution settings are read by the finance flows (registration fee / tax
+  // rate), so roles that view students or fees may read them.
+  institution_settings:  { view: ["manage_settings", "view_fees", "view_students"], add: "manage_settings", update: "manage_settings", delete: "manage_settings" },
+  // Profile name/email is read to display students/teachers/payments, and
+  // written while editing students/teachers. Role escalation stays blocked in
+  // isSqlAllowed. Deleting a student also removes their login profile.
+  profiles:              { view: ["manage_users", "view_students", "view_teachers", "view_fees", "view_payroll", "view_expenses", "view_income", "view_reports", "view_exams", "view_courses", "view_dashboard"], add: "manage_users", update: ["manage_users", "add_students", "add_teachers"], delete: ["manage_users", "delete_students"] },
+  // Commissions are created/removed as part of enrollment and student cleanup.
+  teacher_commissions:   { view: ["view_payroll", "view_students"], add: ["manage_payroll", "add_students"], update: "manage_payroll", delete: ["manage_payroll", "delete_students"] },
   role_permissions:      { view: "manage_permissions", add: "manage_permissions", update: "manage_permissions", delete: "manage_permissions" },
 }
 
