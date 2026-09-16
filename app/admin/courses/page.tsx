@@ -18,9 +18,10 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
+import { Progress } from "@/components/ui/progress"
 import { getItems, addItem, updateItem, deleteItem, getCourseTeachers, assignTeacherToCourse, removeTeacherFromCourse } from "@/lib/api"
-import type { Course, Student, Fee, InstitutionSettings, Teacher } from "@/lib/types"
-import { Plus, Trash2, Pencil, Search, Filter, Loader2, AlertTriangle, Users } from "lucide-react"
+import type { Course, Student, Fee, InstitutionSettings, Teacher, EnrollmentProgress } from "@/lib/types"
+import { Plus, Trash2, Pencil, Search, Filter, Loader2, AlertTriangle, Users, Eye } from "lucide-react"
 import { useEffect, useState } from "react"
 import { usePagination } from "@/hooks/use-pagination"
 import { DataPagination } from "@/components/data-pagination"
@@ -28,8 +29,12 @@ import { DataPagination } from "@/components/data-pagination"
 export default function CoursesPage() {
   const [courses, setCourses] = useState<Course[]>([])
   const [teachers, setTeachers] = useState<Teacher[]>([])
+  const [students, setStudents] = useState<Student[]>([])
+  const [enrollments, setEnrollments] = useState<EnrollmentProgress[]>([])
   const [courseTeachersMap, setCourseTeachersMap] = useState<Record<string, string[]>>({})
   const [isDialogOpen, setIsDialogOpen] = useState(false)
+  const [isViewDialogOpen, setIsViewDialogOpen] = useState(false)
+  const [viewingCourse, setViewingCourse] = useState<Course | null>(null)
   const [isEditing, setIsEditing] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -50,13 +55,17 @@ export default function CoursesPage() {
   const loadData = async () => {
     setIsLoading(true)
     try {
-      const [data, settings, teachersData] = await Promise.all([
+      const [data, settings, teachersData, studentsData, enrollmentData] = await Promise.all([
         getItems<Course>("courses"),
         getItems<InstitutionSettings>("institutionSettings"),
         getItems<Teacher>("teachers"),
+        getItems<Student>("students"),
+        getItems<EnrollmentProgress>("enrollmentProgress"),
       ])
       setCourses(data)
       setTeachers(teachersData)
+      setStudents(studentsData)
+      setEnrollments(enrollmentData)
       if (settings.length > 0 && settings[0].currency) {
         setCurrency(settings[0].currency)
       }
@@ -96,6 +105,19 @@ export default function CoursesPage() {
       teacherIds: courseTeachersMap[course.id] || [],
     })
     setIsDialogOpen(true)
+  }
+
+  const handleView = (course: Course) => {
+    setViewingCourse(course)
+    setIsViewDialogOpen(true)
+  }
+
+  /** Students enrolled in a course via enrollment records (plus the legacy primary courseId). */
+  const enrolledStudentsForCourse = (courseId: string): Student[] => {
+    const ids = new Set<string>()
+    for (const e of enrollments) if (e.courseId === courseId) ids.add(e.studentId)
+    for (const s of students) if (s.courseId === courseId) ids.add(s.id)
+    return students.filter((s) => ids.has(s.id))
   }
 
   const toggleTeacher = (teacherId: string) => {
@@ -237,7 +259,11 @@ export default function CoursesPage() {
                     ) : (
                       coursesPag.pageItems.map((course) => (
                         <TableRow key={course.id}>
-                          <TableCell className="font-medium">{course.name}</TableCell>
+                          <TableCell className="font-medium">
+                            <button type="button" className="text-left hover:underline" onClick={() => handleView(course)}>
+                              {course.name}
+                            </button>
+                          </TableCell>
                           <TableCell>
                             <Badge variant="outline" className="font-mono">{course.code}</Badge>
                           </TableCell>
@@ -270,6 +296,9 @@ export default function CoursesPage() {
                           </TableCell>
                           <TableCell className="text-right">
                             <div className="flex justify-end gap-1">
+                              <Button variant="ghost" size="icon" onClick={() => handleView(course)}>
+                                <Eye className="h-4 w-4" />
+                              </Button>
                               <Button variant="ghost" size="icon" onClick={() => handleEdit(course)}>
                                 <Pencil className="h-4 w-4" />
                               </Button>
@@ -343,6 +372,78 @@ export default function CoursesPage() {
                     </Button>
                   </DialogFooter>
                 </form>
+              </DialogContent>
+            </Dialog>
+
+            <Dialog open={isViewDialogOpen} onOpenChange={setIsViewDialogOpen}>
+              <DialogContent className="max-w-2xl">
+                <DialogHeader>
+                  <DialogTitle>{viewingCourse?.name}</DialogTitle>
+                  <DialogDescription>
+                    {viewingCourse && (
+                      <span className="flex flex-wrap items-center gap-2">
+                        <Badge variant="outline" className="font-mono">{viewingCourse.code}</Badge>
+                        {viewingCourse.duration && <span>{viewingCourse.duration}</span>}
+                        {viewingCourse.fee ? <span>{currency} {Number(viewingCourse.fee).toLocaleString()}</span> : null}
+                      </span>
+                    )}
+                  </DialogDescription>
+                </DialogHeader>
+                {viewingCourse && (() => {
+                  const enrolled = enrolledStudentsForCourse(viewingCourse.id)
+                  return (
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <Users className="h-4 w-4" />
+                        {enrolled.length} enrolled student(s)
+                      </div>
+                      {enrolled.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">No students enrolled yet.</p>
+                      ) : (
+                        <div className="max-h-80 overflow-y-auto rounded-md border">
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead>Admission No.</TableHead>
+                                <TableHead>Student</TableHead>
+                                <TableHead>Phone</TableHead>
+                                <TableHead>Progress</TableHead>
+                                <TableHead>Status</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {enrolled.map((s) => {
+                                const enr = enrollments.find((e) => e.studentId === s.id && e.courseId === viewingCourse.id)
+                                return (
+                                  <TableRow key={s.id}>
+                                    <TableCell className="font-mono text-xs">{s.studentNumber || "—"}</TableCell>
+                                    <TableCell className="font-medium">{s.firstName} {s.lastName}</TableCell>
+                                    <TableCell>{s.phone || s.parentPhone || "-"}</TableCell>
+                                    <TableCell>
+                                      {enr ? (
+                                        <div className="flex items-center gap-2">
+                                          <Progress value={enr.progressPercent} className="h-2 w-16" />
+                                          <span className="text-xs">{enr.progressPercent}%</span>
+                                        </div>
+                                      ) : <span className="text-muted-foreground">—</span>}
+                                    </TableCell>
+                                    <TableCell>
+                                      {enr ? (
+                                        <Badge variant={enr.status === "COMPLETED" ? "default" : enr.status === "DROPPED" ? "destructive" : "secondary"}>
+                                          {enr.status.replace("_", " ")}
+                                        </Badge>
+                                      ) : "—"}
+                                    </TableCell>
+                                  </TableRow>
+                                )
+                              })}
+                            </TableBody>
+                          </Table>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })()}
               </DialogContent>
             </Dialog>
           </CardContent>
