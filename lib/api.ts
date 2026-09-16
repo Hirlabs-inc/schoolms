@@ -154,13 +154,17 @@ const TABLE_MAP: Record<string, string> = {
   enrollmentProgress: "enrollment_progress",
   courseTeachers: "course_teachers",
   institutionSettings: "institution_settings",
+  profiles: "profiles",
 }
 
+type CrudAction = "view" | "add" | "update" | "delete"
+type PermissionRequirement = string | string[]
+
 /**
- * Maps (tableKey, action) → permission key.
- * Used by CRUD functions to enforce per-action RBAC.
+ * Maps (tableKey, action) → permission key(s). An array means "any of these
+ * permissions is sufficient". Used by CRUD functions to enforce per-action RBAC.
  */
-const KEY_PERMISSION_MAP: Record<string, Record<"view" | "add" | "update" | "delete", string>> = {
+const KEY_PERMISSION_MAP: Record<string, Record<CrudAction, PermissionRequirement>> = {
   students:         { view: "view_students",   add: "add_students",   update: "add_students",   delete: "delete_students"  },
   teachers:         { view: "view_teachers",   add: "add_teachers",   update: "add_teachers",   delete: "delete_teachers"  },
   courses:          { view: "view_courses",    add: "add_courses",    update: "add_courses",    delete: "delete_courses"   },
@@ -173,10 +177,16 @@ const KEY_PERMISSION_MAP: Record<string, Record<"view" | "add" | "update" | "del
   income:           { view: "view_income",     add: "add_income",     update: "add_income",     delete: "manage_fees"      },
   teacherContracts: { view: "view_payroll",    add: "manage_payroll", update: "manage_payroll", delete: "manage_payroll"    },
   payrollRecords:   { view: "view_payroll",    add: "manage_payroll", update: "manage_payroll", delete: "manage_payroll"    },
-  enrollmentProgress: { view: "view_reports", add: "add_results",    update: "add_results",    delete: "view_reports"      },
+  // Enrollment records are created as part of student management (add_students)
+  // and maintained on the progress page (add_results). Either grants access.
+  enrollmentProgress: { view: "view_reports", add: ["add_results", "add_students"], update: ["add_results", "add_students"], delete: ["view_reports", "add_students"] },
   courseTeachers:   { view: "view_courses",    add: "add_courses",    update: "add_courses",    delete: "delete_courses"   },
   institutionSettings: { view: "manage_settings", add: "manage_settings", update: "manage_settings", delete: "manage_settings" },
   users:            { view: "manage_users",    add: "manage_users",   update: "manage_users",   delete: "manage_users"     },
+  // Profile name/email edits are part of the student/teacher management flows,
+  // so any role that can add students or teachers may perform them (the server
+  // still blocks role escalation).
+  profiles:         { view: "manage_users",    add: "manage_users",   update: ["manage_users", "add_students", "add_teachers"], delete: "manage_users" },
 }
 
 /**
@@ -195,8 +205,9 @@ async function checkKeyPermission(key: string, action: "view" | "add" | "update"
   const permMap = KEY_PERMISSION_MAP[key]
   if (!permMap) return // Unknown key — no permission gate (legacy behaviour)
 
-  const requiredPerm = permMap[action]
-  if (!requiredPerm) return // No mapping — allow by default
+  const required = permMap[action]
+  if (!required) return // No mapping — allow by default
+  const requiredPerms = Array.isArray(required) ? required : [required]
 
   // Lazily build the cache from the permissions API.
   // The API merges DB overrides on top of DEFAULT_ROLE_PERMISSIONS.
@@ -205,8 +216,13 @@ async function checkKeyPermission(key: string, action: "view" | "add" | "update"
       headers: { Authorization: `Bearer ${getStoredToken() || ""}` },
     })
     if (res.ok) {
-      const data = await res.json() as { permission: string; granted: boolean }[]
-      _permCache = new Map(data.map((p) => [p.permission, p.granted]))
+      const data = await res.json()
+      // The endpoint returns { role, permissions: [...] }, but tolerate a bare
+      // array too so an older/newer server shape never breaks CRUD.
+      const list: Array<{ permission: string; granted: boolean }> = Array.isArray(data)
+        ? data
+        : (data?.permissions ?? [])
+      _permCache = new Map(list.map((p) => [p.permission, p.granted]))
     } else {
       // If the API fails, fall back to deny-all for non-admin roles.
       _permCache = new Map()
@@ -214,8 +230,9 @@ async function checkKeyPermission(key: string, action: "view" | "add" | "update"
     _permCacheRole = user.role
   }
 
-  if (!_permCache.has(requiredPerm) || !_permCache.get(requiredPerm)) {
-    throw new Error(`Forbidden: missing permission '${requiredPerm}'`)
+  const granted = requiredPerms.some((p) => _permCache!.get(p))
+  if (!granted) {
+    throw new Error(`Forbidden: missing permission '${requiredPerms.join("' or '")}'`)
   }
 }
 

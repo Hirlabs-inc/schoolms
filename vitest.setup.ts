@@ -394,6 +394,17 @@ globalThis.fetch = vi.fn(async (input: any, init?: any) => {
     return { ok: true, status: 200, json: async () => ({ user }) } as any
   }
 
+  if (url.includes("/api/admin/permissions/")) {
+    const role = url.split("/").filter(Boolean).pop() as string
+    const { DEFAULT_ROLE_PERMISSIONS, ALL_PERMISSIONS } = await import("./lib/permissions")
+    const defaults = (DEFAULT_ROLE_PERMISSIONS as any)[role] || {}
+    const permissions = (ALL_PERMISSIONS as readonly { key: string }[]).map((p) => ({
+      permission: p.key,
+      granted: Boolean(defaults[p.key] ?? false),
+    }))
+    return { ok: true, status: 200, json: async () => ({ role, permissions }) } as any
+  }
+
   if (url.includes("/api/db")) {
     const { sql, args, queries } = body
     if (Array.isArray(queries)) {
