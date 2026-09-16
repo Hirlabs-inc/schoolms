@@ -188,7 +188,7 @@ export default function StudentsPage() {
   }
 
   const handleDelete = async (id: string) => {
-    if (confirm("Are you sure you want to delete this student? This will remove all their records (fees, attendance, exam results, enrollments).")) {
+    if (confirm("Are you sure you want to delete this student? This will remove all their records (fees, payments, attendance, enrollments).")) {
       try {
         await deleteStudent(id)
         loadData()

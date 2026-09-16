@@ -47,23 +47,6 @@ export interface Course {
   commissionRate?: number
 }
 
-export interface Exam {
-  id: string
-  courseId: string
-  term: string
-  date: string
-  totalMarks: number
-}
-
-export interface ExamResult {
-  id: string
-  examId: string
-  studentId: string
-  marksObtained: number
-  grade: string
-  remarks: string
-}
-
 export interface Attendance {
   id: string
   type: "STUDENT" | "TEACHER"

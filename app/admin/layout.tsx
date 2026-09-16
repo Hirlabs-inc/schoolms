@@ -8,7 +8,7 @@ import { DashboardLayout } from "@/components/dashboard-layout"
 import { useUser } from "@/contexts/user-context"
 import { getStoredToken } from "@/lib/auth-client"
 import type { UserRole } from "@/lib/types"
-import { Users, BookOpen, DollarSign, CreditCard, LayoutDashboard, TrendingUp, Wallet, BarChart3, Settings, Database, Shield, FileText, ClipboardList, Loader2 } from "lucide-react"
+import { Users, BookOpen, DollarSign, CreditCard, LayoutDashboard, TrendingUp, Wallet, BarChart3, Settings, Database, Shield, FileText, Loader2 } from "lucide-react"
 
 // Navigation items mapped 1:1 to permissions.
 const navigation = [
@@ -21,7 +21,6 @@ const navigation = [
   { name: "Payroll",          href: "/admin/payroll",        icon: Wallet,             permission: "view_payroll"    },
   { name: "Progress",         href: "/admin/progress",       icon: BarChart3,          permission: "view_dashboard"  },
   { name: "Reports",          href: "/admin/reports",        icon: TrendingUp,         permission: "view_reports"    },
-  { name: "Exams",            href: "/admin/exams",          icon: ClipboardList,      permission: "view_exams"      },
   { name: "Users",            href: "/admin/users",          icon: Users,              permission: "manage_users"    },
   { name: "Permissions",      href: "/admin/permissions",    icon: Shield,             permission: "manage_permissions" },
   { name: "Backup",           href: "/admin/backup",         icon: Database,           permission: "view_backup"     },
@@ -38,7 +37,6 @@ const titles: Record<string, string> = {
   "/admin/payroll": "Payroll Management",
   "/admin/progress": "Enrollment Progress",
   "/admin/reports": "Financial Reports",
-  "/admin/exams": "Exam Management",
   "/admin/users": "User Management",
   "/admin/permissions": "Role Permissions",
   "/admin/backup": "Backup & Restore",
@@ -53,7 +51,7 @@ const fallbackNavForRole = (role: UserRole) => {
   if (role === "ADMIN" || role === "MANAGER") return navigation
   if (role === "SECRETARY") {
     return navigation.filter((item) =>
-      ["view_dashboard", "view_students", "view_courses", "view_fees", "view_expenses", "view_income", "view_payroll", "view_reports", "view_exams"].includes(item.permission)
+      ["view_dashboard", "view_students", "view_courses", "view_fees", "view_expenses", "view_income", "view_payroll", "view_reports"].includes(item.permission)
     )
   }
   return []

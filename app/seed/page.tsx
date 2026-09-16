@@ -64,13 +64,13 @@ export default function SeedPage() {
       const defaults = {
         ADMIN: true, MANAGER: true,
         SECRETARY: {
-          view_dashboard: true, view_students: true, add_students: true, delete_students: false,
+          view_dashboard: true, view_students: true, add_students: true, delete_students: true,
           view_courses: true, add_courses: false, delete_courses: false,
           view_teachers: false, add_teachers: false, delete_teachers: false,
-          view_fees: true, manage_fees: false, view_expenses: true, add_expenses: false,
-          view_income: true, add_income: false, view_payroll: true, manage_payroll: false,
+          view_fees: true, manage_fees: true, view_expenses: true, add_expenses: false,
+          view_income: true, add_income: true, view_payroll: true, manage_payroll: false,
           view_reports: true, manage_users: false, view_backup: false, manage_settings: false,
-          manage_permissions: false, view_exams: true, add_exams: false, view_results: true, add_results: false,
+          manage_permissions: false,
         },
         TEACHER: false, STUDENT: false,
       }
@@ -78,7 +78,7 @@ export default function SeedPage() {
         "view_dashboard","view_students","add_students","delete_students","view_courses","add_courses","delete_courses",
         "view_teachers","add_teachers","delete_teachers","view_fees","manage_fees","view_expenses","add_expenses",
         "view_income","add_income","view_payroll","manage_payroll","view_reports","manage_users","view_backup",
-        "manage_settings","manage_permissions","view_exams","add_exams","view_results","add_results",
+        "manage_settings","manage_permissions",
       ]
       for (const role of ["ADMIN", "MANAGER", "SECRETARY", "TEACHER", "STUDENT"] as const) {
         for (const perm of allPerms) {

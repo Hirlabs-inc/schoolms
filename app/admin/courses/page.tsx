@@ -19,7 +19,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { getItems, addItem, updateItem, deleteItem, getCourseTeachers, assignTeacherToCourse, removeTeacherFromCourse } from "@/lib/api"
-import type { Course, Student, Fee, Exam, InstitutionSettings, Teacher } from "@/lib/types"
+import type { Course, Student, Fee, InstitutionSettings, Teacher } from "@/lib/types"
 import { Plus, Trash2, Pencil, Search, Filter, Loader2, AlertTriangle, Users } from "lucide-react"
 import { useEffect, useState } from "react"
 import { usePagination } from "@/hooks/use-pagination"
@@ -149,22 +149,19 @@ export default function CoursesPage() {
   const handleDelete = async (id: string) => {
     try {
       // Check for dependent records
-      const [allStudents, allFees, allExams] = await Promise.all([
+      const [allStudents, allFees] = await Promise.all([
         getItems<Student>("students"),
         getItems<Fee>("fees"),
-        getItems<Exam>("exams"),
       ])
       const linkedStudents = allStudents.filter((s: any) => s.courseId === id)
       const linkedFees = allFees.filter(f => f.courseId === id)
-      const linkedExams = allExams.filter(e => e.courseId === id)
-      const totalLinked = linkedStudents.length + linkedFees.length + linkedExams.length
+      const totalLinked = linkedStudents.length + linkedFees.length
 
       let msg = "Delete this course?"
       if (totalLinked > 0) {
         msg += `\n\nThis will also unlink:`
         if (linkedStudents.length) msg += `\n- ${linkedStudents.length} student(s)`
         if (linkedFees.length) msg += `\n- ${linkedFees.length} fee record(s)`
-        if (linkedExams.length) msg += `\n- ${linkedExams.length} exam(s)`
       }
       if (!confirm(msg)) return
 
@@ -174,9 +171,6 @@ export default function CoursesPage() {
       }
       for (const f of linkedFees) {
         await deleteItem("fees", f.id)
-      }
-      for (const e of linkedExams) {
-        await deleteItem("exams", e.id)
       }
 
       await deleteItem("courses", id)

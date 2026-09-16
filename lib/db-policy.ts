@@ -15,7 +15,6 @@ export const ALLOWED_TABLES = new Set([
   "courses",
   "teachers",
   "classes",
-  "exams",
   "expenses",
   "income",
   "payroll_records",
@@ -24,6 +23,7 @@ export const ALLOWED_TABLES = new Set([
   "enrollment_progress",
   "course_teachers",
   "institution_settings",
+  // Legacy table kept only so student deletion can still clean it up.
   "exam_results",
   "attendance",
   "profiles",
@@ -40,8 +40,8 @@ export const TABLE_PERMISSION_MAP: Record<string, Record<SqlAction, PermissionRe
   teachers:              { view: "view_teachers",   add: "add_teachers",   update: "add_teachers",   delete: "delete_teachers"  },
   courses:               { view: "view_courses",    add: "add_courses",    update: "add_courses",    delete: "delete_courses"   },
   classes:               { view: "view_courses",    add: "add_courses",    update: "add_courses",    delete: "delete_courses"   },
-  exams:                 { view: "view_exams",      add: "add_exams",      update: "add_exams",      delete: "delete_exams"     },
-  exam_results:          { view: "view_results",    add: "add_results",    update: "add_results",    delete: "delete_exams"     },
+  // Legacy exam results: only touched when deleting a student.
+  exam_results:          { view: "view_students",   add: "add_students",   update: "add_students",   delete: "delete_students"  },
   attendance:            { view: "view_attendance", add: "view_attendance", update: "view_attendance", delete: "view_attendance"  },
   fees:                  { view: "view_fees",       add: "manage_fees",    update: "manage_fees",    delete: "manage_fees"      },
   payments:              { view: "view_fees",       add: "manage_fees",    update: "manage_fees",    delete: "manage_fees"      },
@@ -59,7 +59,7 @@ export const TABLE_PERMISSION_MAP: Record<string, Record<SqlAction, PermissionRe
   // Profile name/email is read to display students/teachers/payments, and
   // written while editing students/teachers. Role escalation stays blocked in
   // isSqlAllowed. Deleting a student also removes their login profile.
-  profiles:              { view: ["manage_users", "view_students", "view_teachers", "view_fees", "view_payroll", "view_expenses", "view_income", "view_reports", "view_exams", "view_courses", "view_dashboard"], add: "manage_users", update: ["manage_users", "add_students", "add_teachers"], delete: ["manage_users", "delete_students"] },
+  profiles:              { view: ["manage_users", "view_students", "view_teachers", "view_fees", "view_payroll", "view_expenses", "view_income", "view_reports", "view_courses", "view_dashboard"], add: "manage_users", update: ["manage_users", "add_students", "add_teachers"], delete: ["manage_users", "delete_students"] },
   // Commissions are created/removed as part of enrollment and student cleanup.
   teacher_commissions:   { view: ["view_payroll", "view_students"], add: ["manage_payroll", "add_students"], update: "manage_payroll", delete: ["manage_payroll", "delete_students"] },
   role_permissions:      { view: "manage_permissions", add: "manage_permissions", update: "manage_permissions", delete: "manage_permissions" },

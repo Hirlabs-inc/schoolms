@@ -1,5 +1,5 @@
 // SQLite-backed Drop-in replacement for lib/api.ts
-import type { User, Student, Teacher, Class, Course, Exam, ExamResult, Attendance } from "./types"
+import type { User, Student, Teacher, Class, Course, Attendance } from "./types"
 
 // Helper to call the SQLite Bridge API
 async function dbCall(action: string, payload: any = {}) {
@@ -20,8 +20,6 @@ const TABLE_MAP: Record<string, string> = {
     teachers: 'teachers',
     classes: 'classes',
     courses: 'courses',
-    exams: 'exams',
-    examResults: 'exam_results',
     attendance: 'attendance',
 }
 

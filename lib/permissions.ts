@@ -50,11 +50,6 @@ export const ALL_PERMISSIONS = [
   { key: "view_backup",      label: "View Backup",           group: "Admin"    },
   { key: "manage_settings",  label: "Manage Settings",       group: "Admin"    },
   { key: "manage_permissions", label: "Manage Permissions",  group: "Admin"    },
-  // Exams
-  { key: "view_exams",       label: "View Exams",            group: "Academics"},
-  { key: "add_exams",        label: "Add / Edit Exams",      group: "Academics"},
-  { key: "view_results",     label: "View Exam Results",     group: "Academics"},
-  { key: "add_results",      label: "Add / Edit Results",    group: "Academics"},
   // Attendance
   { key: "view_attendance",  label: "View Attendance",       group: "Students" },
   { key: "manage_attendance", label: "Manage Attendance",    group: "Students" },
@@ -101,10 +96,6 @@ function _defaults(): Record<UserRole, Record<Permission, boolean>> {
     view_backup:          false,
     manage_settings:      false,
     manage_permissions:   false,
-    view_exams:           true,
-    add_exams:            false,
-    view_results:         true,
-    add_results:          false,
     view_attendance:      true,
     manage_attendance:    false,
   }

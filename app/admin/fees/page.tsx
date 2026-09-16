@@ -748,7 +748,7 @@ export default function FeesPage() {
                 ) : (
                   <div className="grid gap-2">
                     <Label>Description</Label>
-                    <Input value={feeForm.description} onChange={(e) => setFeeForm({ ...feeForm, description: e.target.value })} placeholder={feeForm.feeType === "REGISTRATION" ? "Registration fee" : "e.g. Exam fee, Uniform"} />
+                    <Input value={feeForm.description} onChange={(e) => setFeeForm({ ...feeForm, description: e.target.value })} placeholder={feeForm.feeType === "REGISTRATION" ? "Registration fee" : "e.g. Uniform, Books"} />
                   </div>
                 )}
                 <div className="grid grid-cols-2 gap-4">

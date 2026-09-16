@@ -50,11 +50,6 @@ const PERMISSION_KEYS = [
   "manage_permissions",
   "view_backup",
   "manage_settings",
-  "view_exams",
-  "add_exams",
-  "delete_exams",
-  "view_results",
-  "add_results",
   "view_attendance",
 ] as const
 

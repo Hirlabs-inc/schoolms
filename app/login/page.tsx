@@ -24,7 +24,6 @@ const PERMISSION_ROUTE: Record<string, string> = {
   view_income: "/admin/income",
   view_payroll: "/admin/payroll",
   view_reports: "/admin/reports",
-  view_exams: "/admin/exams",
   manage_users: "/admin/users",
   manage_permissions: "/admin/permissions",
   view_backup: "/admin/backup",
