@@ -119,6 +119,12 @@ export default function ReportsPage() {
   const totalIncome = filteredPayments.reduce((s, p) => s + Number(p.amount), 0)
   const totalExpensesAmt = filteredExpenses.reduce((s, e) => s + Number(e.amount), 0)
   const outstandingTotal = fees.filter(f => f.status !== "PAID").reduce((s, f) => s + Number(f.balance || 0), 0)
+  const outstandingFees = fees.filter(f => f.status !== "PAID")
+  const studentLabel = (f: Fee) => `${f.firstName || ""} ${f.lastName || ""}`.trim() || "Unknown student"
+  const chargeLabel = (f: Fee) =>
+    f.courseName ||
+    f.description ||
+    (f.feeType === "REGISTRATION" ? "Registration fee" : f.feeType === "OTHER" ? "Other charge" : "—")
   const totalPayroll = payrollRecords.filter(r => r.status === "PAID").reduce((s, r) => s + Number(r.amount), 0)
   // Income records auto-created from fee payments (category FEES) duplicate the
   // payments themselves, so exclude them to avoid double-counting revenue.
@@ -161,16 +167,14 @@ export default function ReportsPage() {
   }
 
   const handleExportOutstandingPDF = () => {
-    const outstandingFees = fees.filter(f => f.status !== "PAID")
     const headers = ["Student", "Course", "Total Fee", "Balance", "Status"]
-    const rows = outstandingFees.map(f => [`${f.firstName || ""} ${f.lastName || ""}`, f.courseName || "", `${currency} ${Number(f.totalFee).toLocaleString()}`, `${currency} ${Number(f.balance).toLocaleString()}`, f.status])
+    const rows = outstandingFees.map(f => [studentLabel(f), chargeLabel(f), `${currency} ${Number(f.totalFee).toLocaleString()}`, `${currency} ${Number(f.balance).toLocaleString()}`, f.status])
     exportToPDF("Outstanding Balance Report", headers, rows, [{ label: "Total Outstanding", value: `${currency} ${outstandingTotal.toLocaleString()}` }, { label: "Students", value: outstandingFees.length.toString() }])
   }
 
   const handleExportOutstandingCSV = () => {
-    const outstandingFees = fees.filter(f => f.status !== "PAID")
     exportToCSV("outstanding_balances", ["Student", "Course", "Total Fee", "Balance", "Status"],
-      outstandingFees.map(f => [`${f.firstName || ""} ${f.lastName || ""}`, f.courseName || "", Number(f.totalFee).toString(), Number(f.balance).toString(), f.status]))
+      outstandingFees.map(f => [studentLabel(f), chargeLabel(f), Number(f.totalFee).toString(), Number(f.balance).toString(), f.status]))
   }
 
   const handleExportCashFlowPDF = () => {
@@ -431,13 +435,13 @@ export default function ReportsPage() {
                     <TableRow><TableHead>Student</TableHead><TableHead>Course</TableHead><TableHead>Total Fee</TableHead><TableHead>Balance</TableHead><TableHead>Status</TableHead></TableRow>
                   </TableHeader>
                   <TableBody>
-                    {fees.filter(f => f.status !== "PAID").length === 0 ? (
+                    {outstandingFees.length === 0 ? (
                       <TableRow><TableCell colSpan={5} className="text-center h-24 text-muted-foreground">No outstanding balances</TableCell></TableRow>
                     ) : (
-                      fees.filter(f => f.status !== "PAID").map(f => (
+                      outstandingFees.map(f => (
                         <TableRow key={f.id}>
-                          <TableCell>{f.firstName} {f.lastName}</TableCell>
-                          <TableCell>{f.courseName}</TableCell>
+                          <TableCell>{studentLabel(f)}</TableCell>
+                          <TableCell>{chargeLabel(f)}</TableCell>
                           <TableCell>{currency} {Number(f.totalFee).toLocaleString()}</TableCell>
                           <TableCell className="font-bold text-orange-600">{currency} {Number(f.balance).toLocaleString()}</TableCell>
                           <TableCell>{f.status}</TableCell>

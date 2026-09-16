@@ -383,19 +383,55 @@ export async function getItems<T>(key: string): Promise<T[]> {
 
   if (key === "fees") {
     const courseIds = uniqueIds(rows.map((r) => r.courseId))
+    const studentIds = uniqueIds(rows.map((r) => r.studentId))
     const batchQueries: Array<{ sql: string; args: any[] }> = []
+    let courseIdx = -1
+    let studentIdx = -1
     if (courseIds.length) {
+      courseIdx = batchQueries.length
       batchQueries.push({
         sql: `select id, name from courses where id in (${placeholders(courseIds.length)})`,
         args: courseIds,
       })
     }
+    if (studentIds.length) {
+      studentIdx = batchQueries.length
+      batchQueries.push({
+        sql: `select id, profileId, firstName, lastName, email from students where id in (${placeholders(studentIds.length)})`,
+        args: studentIds,
+      })
+    }
     const results = batchQueries.length ? await turso.batch(batchQueries) : []
-    const courseMap = indexRows(results[0]?.rows ?? [])
-    return rows.map((row) => ({
-      ...row,
-      courseName: row.courseId ? courseMap.get(row.courseId)?.name : undefined,
-    })) as T[]
+    const courseMap = courseIdx >= 0 ? indexRows(results[courseIdx]?.rows ?? []) : new Map<string, any>()
+    const studentRows = studentIdx >= 0 ? (results[studentIdx]?.rows ?? []) : []
+    const studentMap = indexRows(studentRows)
+
+    // Fall back to profiles for legacy students whose name columns are empty
+    // (login students may store their profile under the student id itself).
+    const profileIds = uniqueIds([
+      ...studentRows.map((s: any) => s.profileId || s.id),
+      ...studentIds,
+    ])
+    let profileMap = new Map<string, any>()
+    if (profileIds.length) {
+      const prs = await turso.execute({
+        sql: `select id, firstName, lastName, email from profiles where id in (${placeholders(profileIds.length)})`,
+        args: profileIds,
+      })
+      profileMap = indexRows(prs.rows)
+    }
+
+    return rows.map((row) => {
+      const s = studentMap.get(row.studentId)
+      const p = profileMap.get(s?.profileId || row.studentId)
+      return {
+        ...row,
+        courseName: row.courseId ? courseMap.get(row.courseId)?.name : undefined,
+        firstName: s?.firstName || p?.firstName || null,
+        lastName: s?.lastName || p?.lastName || null,
+        email: s?.email || p?.email || null,
+      }
+    }) as T[]
   }
 
   if (key === "expenses" || key === "income") {
@@ -439,27 +475,49 @@ export async function getItems<T>(key: string): Promise<T[]> {
     const studentIds = uniqueIds(rows.map((r) => r.studentId))
     const courseIds = uniqueIds(rows.map((r) => r.courseId))
     const batchQueries: Array<{ sql: string; args: any[] }> = []
+    let studentIdx = -1
+    let courseIdx = -1
     if (studentIds.length) {
+      studentIdx = batchQueries.length
       batchQueries.push({
-        sql: `select id, firstName, lastName from profiles where id in (${placeholders(studentIds.length)})`,
+        sql: `select id, profileId, firstName, lastName from students where id in (${placeholders(studentIds.length)})`,
         args: studentIds,
       })
     }
     if (courseIds.length) {
+      courseIdx = batchQueries.length
       batchQueries.push({
         sql: `select id, name from courses where id in (${placeholders(courseIds.length)})`,
         args: courseIds,
       })
     }
     const results = batchQueries.length ? await turso.batch(batchQueries) : []
-    const profileMap = indexRows(results[0]?.rows ?? [])
-    const courseMap = indexRows(results[1]?.rows ?? [])
+    const studentRows = studentIdx >= 0 ? (results[studentIdx]?.rows ?? []) : []
+    const studentMap = indexRows(studentRows)
+    const courseMap = courseIdx >= 0 ? indexRows(results[courseIdx]?.rows ?? []) : new Map<string, any>()
+
+    // Fall back to profiles for legacy students whose name columns are empty.
+    const profileIds = uniqueIds([
+      ...studentRows.map((s: any) => s.profileId || s.id),
+      ...studentIds,
+    ])
+    let profileMap = new Map<string, any>()
+    if (profileIds.length) {
+      const prs = await turso.execute({
+        sql: `select id, firstName, lastName from profiles where id in (${placeholders(profileIds.length)})`,
+        args: profileIds,
+      })
+      profileMap = indexRows(prs.rows)
+    }
+
     return rows.map((row) => {
-      const p = profileMap.get(row.studentId)
+      const s = studentMap.get(row.studentId)
+      const p = profileMap.get(s?.profileId || row.studentId)
       const c = courseMap.get(row.courseId)
+      const name = `${s?.firstName || p?.firstName || ""} ${s?.lastName || p?.lastName || ""}`.trim()
       return {
         ...row,
-        studentName: p ? `${p.firstName} ${p.lastName}` : "Unknown",
+        studentName: name || "Unknown",
         courseName: c?.name || "Unknown",
       }
     }) as T[]
