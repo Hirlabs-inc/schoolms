@@ -5,8 +5,13 @@
 Create `.env.local` on the server with:
 
 ```
+# Postgres (preferred) — run `npm run db:migrate` once to create the schema
+DATABASE_URL=postgresql://user:password@localhost:5432/school_management
+
+# ...or Turso/libSQL instead of Postgres
 TURSO_URL=libsql://your-instance.turso.io
 TURSO_TOKEN=your-turso-auth-token
+
 JWT_SECRET=<a long random string, e.g. openssl rand -base64 48>
 # optional:
 NEXT_PUBLIC_TEXTBEE_API_KEY=your-textbee-key
@@ -15,9 +20,9 @@ NEXT_PUBLIC_TEXTBEE_API_KEY=your-textbee-key
 > ⚠️ `JWT_SECRET` is **mandatory in production**. The app refuses to start if it is missing
 > when `NODE_ENV=production`. Generate a strong value and keep it secret.
 
-> If you prefer a local database instead of Turso, set `TURSO_URL=file:./prod.db` and
-> `TURSO_TOKEN=` (empty). Run `npm run db:push` / apply the SQL migrations in `*.sql`
-> to initialize the schema.
+> Set **either** `DATABASE_URL` (Postgres) **or** `TURSO_URL` + `TURSO_TOKEN`. When
+> `DATABASE_URL` is set the app uses Postgres and ignores Turso. Apply the schema with
+> `npm run db:migrate` (idempotent).
 
 ## 2. Build & Run (Node)
 
@@ -42,9 +47,30 @@ location / {
 For process supervision use `pm2`:
 
 ```bash
-pm2 start "npm run start" --name trainify --env production
+npm install -g pm2
+pm2 start ecosystem.config.cjs   # reads PORT/NODE_ENV from the config
 pm2 save
+pm2 startup                      # follow the printed command to enable boot start
 ```
+
+Manage it with:
+
+```bash
+pm2 status
+pm2 logs trainify
+pm2 reload ecosystem.config.cjs --update-env   # zero-downtime restart after a rebuild
+```
+
+Or use the helper script, which installs, migrates, builds and reloads in one go:
+
+```bash
+./deploy-pm2.sh
+```
+
+The PM2 app runs `next start` from the project directory, so Next.js loads
+`.env.local` automatically — `DATABASE_URL`/`TURSO_URL`/`JWT_SECRET` stay out of
+`ecosystem.config.cjs`. The config lives in `ecosystem.config.cjs` (fork mode,
+1 instance by default; see the comments there to switch to cluster mode).
 
 ## 3. Docker (optional)
 

@@ -8,7 +8,11 @@
     "lint": "eslint .",
     "start": "next start",
     "db:fix-students-fk": "node scripts/fix-students-fk.mjs",
-    "db:migrate": "node scripts/migrate-postgres.mjs"
+    "db:migrate": "node scripts/migrate-postgres.mjs",
+    "pm2:start": "pm2 start ecosystem.config.cjs",
+    "pm2:reload": "pm2 reload ecosystem.config.cjs --update-env",
+    "pm2:stop": "pm2 stop trainify",
+    "pm2:logs": "pm2 logs trainify"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
