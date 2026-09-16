@@ -576,8 +576,10 @@ export default function FeesPage() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Student</TableHead>
-                      <TableHead>Course</TableHead>
-                      <TableHead>Total Fee</TableHead>
+                      <TableHead>Charge</TableHead>
+                      <TableHead>Gross</TableHead>
+                      <TableHead>Discount</TableHead>
+                      <TableHead>Net</TableHead>
                       <TableHead>Paid</TableHead>
                       <TableHead>Balance</TableHead>
                       <TableHead>Status</TableHead>
@@ -586,7 +588,7 @@ export default function FeesPage() {
                   </TableHeader>
                   <TableBody>
                     {fees.length === 0 ? (
-                      <TableRow><TableCell colSpan={7} className="text-center h-24 text-muted-foreground">No fees assigned yet</TableCell></TableRow>
+                      <TableRow><TableCell colSpan={9} className="text-center h-24 text-muted-foreground">No fees assigned yet</TableCell></TableRow>
                     ) : (
                       feesPag.pageItems.map((fee) => {
                         const paid = Number(fee.totalFee) - Number(fee.balance)
@@ -594,7 +596,15 @@ export default function FeesPage() {
                           <TableRow key={fee.id} className={feeRowClasses(fee)}>
                             <TableCell className="font-medium">{getStudentName(fee.studentId)}</TableCell>
                             <TableCell>{fee.feeType === "COURSE" ? (fee.courseName || getCourseName(fee.courseId || "")) : (fee.description || fee.feeType || "—")}</TableCell>
-                            <TableCell>{currency} {Number(fee.totalFee).toLocaleString()}</TableCell>
+                            <TableCell>{currency} {Number(fee.grossAmount ?? fee.totalFee).toLocaleString()}</TableCell>
+                            <TableCell className="text-purple-600">
+                              {Number(fee.discountAmount) > 0 ? (
+                                <span title={fee.discountReason || undefined}>- {currency} {Number(fee.discountAmount).toLocaleString()}</span>
+                              ) : (
+                                <span className="text-muted-foreground">—</span>
+                              )}
+                            </TableCell>
+                            <TableCell className="font-medium">{currency} {Number(fee.totalFee).toLocaleString()}</TableCell>
                             <TableCell className="text-green-600">{currency} {paid.toLocaleString()}</TableCell>
                             <TableCell className={`font-medium ${Number(fee.balance) > 0 ? "text-red-600" : ""}`}>{currency} {Number(fee.balance).toLocaleString()}</TableCell>
                             <TableCell>{feeStatus(fee)}</TableCell>

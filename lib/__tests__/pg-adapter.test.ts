@@ -80,4 +80,14 @@ describe("toCamel / mapRow", () => {
     expect(toCamel("totalpayroll")).toBe("totalPayroll")
     expect(toCamel("paycount")).toBe("payCount")
   })
+
+  it("maps the finance columns (fee type, discount, tax, registration fee)", () => {
+    expect(toCamel("feetype")).toBe("feeType")
+    expect(toCamel("grossamount")).toBe("grossAmount")
+    expect(toCamel("discountamount")).toBe("discountAmount")
+    expect(toCamel("discountreason")).toBe("discountReason")
+    expect(toCamel("taxamount")).toBe("taxAmount")
+    expect(toCamel("registrationfee")).toBe("registrationFee")
+    expect(toCamel("taxrate")).toBe("taxRate")
+  })
 })

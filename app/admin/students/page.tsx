@@ -574,13 +574,23 @@ export default function StudentsPage() {
                   {(() => {
                     const studentFees = feesMap[selectedStudent.id] || []
                     if (studentFees.length === 0) return <p className="text-sm text-muted-foreground">No fee assigned</p>
+                    const gross = studentFees.reduce((sum, f) => sum + (Number(f.grossAmount ?? f.totalFee) || 0), 0)
+                    const discount = studentFees.reduce((sum, f) => sum + (Number(f.discountAmount) || 0), 0)
                     const totalFee = studentFees.reduce((sum, f) => sum + (Number(f.totalFee) || 0), 0)
                     const balance = studentFees.reduce((sum, f) => sum + (Number(f.balance) || 0), 0)
                     const paid = totalFee - balance
                     return (
-                      <div className="grid grid-cols-3 gap-2 text-sm">
+                      <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-5">
                         <div className="bg-muted rounded-lg p-2 text-center">
-                          <p className="text-xs text-muted-foreground">Total Fee</p>
+                          <p className="text-xs text-muted-foreground">Gross</p>
+                          <p className="font-bold">KSh {gross.toLocaleString()}</p>
+                        </div>
+                        <div className="bg-muted rounded-lg p-2 text-center">
+                          <p className="text-xs text-muted-foreground">Discount</p>
+                          <p className="font-bold text-purple-600">- KSh {discount.toLocaleString()}</p>
+                        </div>
+                        <div className="bg-muted rounded-lg p-2 text-center">
+                          <p className="text-xs text-muted-foreground">Net Fee</p>
                           <p className="font-bold">KSh {totalFee.toLocaleString()}</p>
                         </div>
                         <div className="bg-muted rounded-lg p-2 text-center">
