@@ -90,14 +90,30 @@ export interface Payment {
   email?: string
 }
 
+export type FeeType = "COURSE" | "REGISTRATION" | "OTHER"
+
+export type FeeStatus = "PENDING" | "PARTIAL" | "PAID" | "OVERDUE" | "CANCELLED"
+
 export interface Fee {
   id: string
   studentId: string
-  courseId: string
+  courseId: string | null
+  /** COURSE (per-course tuition), REGISTRATION (one-off admission fee) or OTHER. */
+  feeType?: FeeType
+  /** Human label for REGISTRATION / OTHER charges. */
+  description?: string
+  /** List price before discount and tax. */
+  grossAmount?: number
+  /** Absolute discount applied to this charge. */
+  discountAmount?: number
+  discountReason?: string
+  /** Tax/VAT amount added to the net charge. */
+  taxAmount?: number
+  /** Net payable = grossAmount - discountAmount + taxAmount. */
   totalFee: number
   balance: number
   dueDate?: string
-  status: "PENDING" | "PARTIAL" | "PAID" | "OVERDUE"
+  status: FeeStatus
   createdAt?: string
   updatedAt?: string
   firstName?: string
@@ -193,6 +209,10 @@ export interface InstitutionSettings {
   contactPhone?: string
   address?: string
   currency: string
+  /** One-off admission fee charged when a student first enrolls. */
+  registrationFee?: number
+  /** Tax/VAT rate in percent applied to every charge. */
+  taxRate?: number
   createdAt?: string
   updatedAt?: string
 }
@@ -218,9 +238,40 @@ export interface FeeSummary {
   totalFee: number
   amountPaid: number
   balance: number
+  /** Overpayment carried forward, applied automatically to future charges. */
+  credit?: number
   nextDueDate?: string
   status: "PENDING" | "PARTIAL" | "PAID" | "OVERDUE" | "NONE"
   payments: Payment[]
+  /** All charges (course, registration, other) making up the balance. */
+  charges?: Fee[]
+}
+
+export type LedgerEntryType = "CHARGE" | "DISCOUNT" | "TAX" | "PAYMENT"
+
+export interface LedgerEntry {
+  id: string
+  date: string
+  type: LedgerEntryType
+  description: string
+  /** Positive increases what the student owes; negative reduces it. */
+  amount: number
+  /** Running balance after this entry. */
+  balance: number
+}
+
+export interface StudentLedger {
+  studentId: string
+  entries: LedgerEntry[]
+  totals: {
+    gross: number
+    discount: number
+    tax: number
+    net: number
+    paid: number
+    balance: number
+    credit: number
+  }
 }
 
 export interface TeacherCommissionSummary {

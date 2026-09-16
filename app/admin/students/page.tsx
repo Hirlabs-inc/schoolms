@@ -19,7 +19,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
-import { getItems, addItem, updateItem, deleteItem, registerStudent, computeCommissionForEnrollment, deleteStudent } from "@/lib/api"
+import { getItems, updateItem, registerStudent, deleteStudent, syncStudentEnrollments } from "@/lib/api"
 import type { Student, Course, Fee, EnrollmentProgress } from "@/lib/types"
 import { Users, BookOpen, DollarSign, CreditCard, Plus, Trash2, Pencil, Search, TrendingUp, Wallet, BarChart3, Loader2, Eye } from "lucide-react"
 import { useEffect, useState } from "react"
@@ -136,27 +136,11 @@ export default function StudentsPage() {
           email: formData.email,
         })
         await updateItem("students", editingStudent.id, studentData)
-        // Recreate enrollment records for all selected courses.
-        const oldEnrollments = enrollments.filter((en) => en.studentId === editingStudent!.id)
-        for (const en of oldEnrollments) {
-          await deleteItem("enrollmentProgress", en.id)
-        }
-        for (const courseId of selectedCourseIds) {
-          await addItem("enrollmentProgress", {
-            studentId,
-            courseId,
-            progressPercent: 0,
-            status: "ENROLLED",
-            startDate: formData.admissionDate || null,
-            notes: null,
-          })
-          try {
-            await computeCommissionForEnrollment(studentId, courseId)
-          } catch (err) {
-            const m = (err as Error)?.message || ""
-            if (!m.includes("Commission configuration")) throw err
-          }
-        }
+        // Reconcile enrollments: adds new courses (+ their charges), removes
+        // dropped ones (+ voids their charges) and keeps the registration fee.
+        await syncStudentEnrollments(studentId!, selectedCourseIds, {
+          dueDate: formData.expectedCompletionDate || undefined,
+        })
         alert("Student updated successfully!")
       } else {
         const result = await registerStudent({
@@ -165,24 +149,6 @@ export default function StudentsPage() {
           courseIds: selectedCourseIds,
         }) as { success: boolean; userId: string }
         studentId = result?.userId
-
-        // Enroll in every selected course + compute per-teacher commission.
-        for (const courseId of selectedCourseIds) {
-          await addItem("enrollmentProgress", {
-            studentId,
-            courseId,
-            progressPercent: 0,
-            status: "ENROLLED",
-            startDate: formData.admissionDate || null,
-            notes: null,
-          })
-          try {
-            await computeCommissionForEnrollment(studentId, courseId)
-          } catch (err) {
-            const m = (err as Error)?.message || ""
-            if (!m.includes("Commission configuration")) throw err
-          }
-        }
         alert("Student created successfully!")
       }
 

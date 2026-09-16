@@ -19,8 +19,9 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { getItems, addItem, updateItem, deleteItem, getCurrentUser, getStudentFeeSummary, updateOverdueFees } from "@/lib/api"
-import type { Student, Fee, Payment, Course, InstitutionSettings, Income } from "@/lib/types"
+import { getItems, addItem, updateItem, deleteItem, getCurrentUser, getStudentFeeSummary, getStudentLedger, updateOverdueFees, computeChargeAmounts, recordStudentPayment } from "@/lib/api"
+import { usePermissions } from "@/contexts/permission-context"
+import type { Student, Fee, Payment, Course, InstitutionSettings, Income, FeeType, StudentLedger } from "@/lib/types"
 import { VisuallyHidden } from "@radix-ui/react-visually-hidden"
 import { DollarSign, Plus, Trash2, Loader2, Printer, Search, Pencil } from "lucide-react"
 import { useEffect, useState } from "react"
@@ -42,11 +43,15 @@ export default function FeesPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [currency, setCurrency] = useState("KES")
+  const [taxRate, setTaxRate] = useState(0)
+  const [registrationFee, setRegistrationFee] = useState(0)
+  const { hasPermission } = usePermissions()
+  const canManageFees = hasPermission("manage_fees")
 
   // Fee assignment dialog
   const [isFeeDialogOpen, setIsFeeDialogOpen] = useState(false)
   const [isEditingFee, setIsEditingFee] = useState(false)
-  const [feeForm, setFeeForm] = useState({ id: "", studentId: "", courseId: "", totalFee: "", dueDate: "" })
+  const [feeForm, setFeeForm] = useState({ id: "", studentId: "", courseId: "", feeType: "COURSE" as FeeType, description: "", grossAmount: "", discountAmount: "", discountReason: "", dueDate: "" })
 
   // Payment dialog
   const [isPaymentDialogOpen, setIsPaymentDialogOpen] = useState(false)
@@ -62,7 +67,8 @@ export default function FeesPage() {
 
   // Student fee summary
   const [summaryStudentId, setSummaryStudentId] = useState("")
-  const [summary, setSummary] = useState<{ totalFee: number; amountPaid: number; balance: number; nextDueDate: string | null | undefined; status: string; payments: Payment[] } | null>(null)
+  const [summary, setSummary] = useState<{ totalFee: number; amountPaid: number; balance: number; credit?: number; nextDueDate: string | null | undefined; status: string; payments: Payment[]; charges?: Fee[] } | null>(null)
+  const [ledger, setLedger] = useState<StudentLedger | null>(null)
   const [isSummaryLoading, setIsSummaryLoading] = useState(false)
 
   useEffect(() => { loadData() }, [])
@@ -78,7 +84,11 @@ export default function FeesPage() {
         getItems<Payment>("payments"),
         getItems<InstitutionSettings>("institutionSettings"),
       ])
-      if (settings.length > 0) setCurrency(settings[0].currency || "KES")
+      if (settings.length > 0) {
+        setCurrency(settings[0].currency || "KES")
+        setTaxRate(Number(settings[0].taxRate) || 0)
+        setRegistrationFee(Number(settings[0].registrationFee) || 0)
+      }
       setStudents(studentsData)
       setCourses(coursesData)
       setFees(feesData)
@@ -93,7 +103,7 @@ export default function FeesPage() {
   // --- Fee CRUD ---
   const handleAddFee = () => {
     setIsEditingFee(false)
-    setFeeForm({ id: "", studentId: "", courseId: "", totalFee: "", dueDate: "" })
+    setFeeForm({ id: "", studentId: "", courseId: "", feeType: "COURSE", description: "", grossAmount: "", discountAmount: "", discountReason: "", dueDate: "" })
     setIsFeeDialogOpen(true)
   }
 
@@ -102,8 +112,12 @@ export default function FeesPage() {
     setFeeForm({
       id: fee.id,
       studentId: fee.studentId,
-      courseId: fee.courseId,
-      totalFee: fee.totalFee.toString(),
+      courseId: fee.courseId || "",
+      feeType: fee.feeType || "COURSE",
+      description: fee.description || "",
+      grossAmount: String(fee.grossAmount ?? fee.totalFee ?? ""),
+      discountAmount: String(fee.discountAmount ?? ""),
+      discountReason: fee.discountReason || "",
       dueDate: fee.dueDate || "",
     })
     setIsFeeDialogOpen(true)
@@ -113,28 +127,47 @@ export default function FeesPage() {
     e.preventDefault()
     setIsSubmitting(true)
     try {
-      const total = Number.parseFloat(feeForm.totalFee)
+      const gross = Number.parseFloat(feeForm.grossAmount) || 0
+      const discount = Number.parseFloat(feeForm.discountAmount) || 0
+      const amounts = computeChargeAmounts(gross, discount, taxRate)
+      const courseId = feeForm.feeType === "COURSE" ? feeForm.courseId : null
+      if (feeForm.feeType === "COURSE" && !courseId) {
+        alert("Please select a course")
+        return
+      }
       if (isEditingFee) {
         const fee = fees.find(f => f.id === feeForm.id)
         const paidSoFar = fee ? Number(fee.totalFee) - Number(fee.balance) : 0
-        const newBalance = total - paidSoFar
-        const newStatus = newBalance <= 0 ? "PAID" : newBalance < total ? "PARTIAL" : "PENDING"
+        const newBalance = Math.max(0, amounts.totalFee - paidSoFar)
+        const newStatus = newBalance <= 0 ? "PAID" : paidSoFar > 0 ? "PARTIAL" : "PENDING"
         await updateItem("fees", feeForm.id, {
-          courseId: feeForm.courseId,
-          totalFee: total,
+          courseId,
+          feeType: feeForm.feeType,
+          description: feeForm.description || null,
+          grossAmount: amounts.grossAmount,
+          discountAmount: amounts.discountAmount,
+          discountReason: feeForm.discountReason || null,
+          taxAmount: amounts.taxAmount,
+          totalFee: amounts.totalFee,
           balance: newBalance,
           dueDate: feeForm.dueDate || null,
           status: newStatus,
-        })
+        } as any)
       } else {
         await addItem("fees", {
           studentId: feeForm.studentId,
-          courseId: feeForm.courseId,
-          totalFee: total,
-          balance: total,
+          courseId,
+          feeType: feeForm.feeType,
+          description: feeForm.description || null,
+          grossAmount: amounts.grossAmount,
+          discountAmount: amounts.discountAmount,
+          discountReason: feeForm.discountReason || null,
+          taxAmount: amounts.taxAmount,
+          totalFee: amounts.totalFee,
+          balance: amounts.totalFee,
           dueDate: feeForm.dueDate || null,
-          status: "PENDING",
-        })
+          status: amounts.totalFee <= 0 ? "PAID" : "PENDING",
+        } as any)
       }
       setIsFeeDialogOpen(false)
       loadData()
@@ -237,26 +270,14 @@ export default function FeesPage() {
         }
       } else {
         const receiptNumber = paymentForm.receiptNumber || generateReceiptNumber()
-        await addItem("payments", {
+        await recordStudentPayment({
           studentId: paymentForm.studentId,
-          feeId: paymentForm.feeId,
+          feeId: paymentForm.feeId || null,
           amount: Number.parseFloat(paymentForm.amount),
           paymentDate: paymentForm.paymentDate,
           paymentMethod: paymentForm.paymentMethod as "CASH" | "M_PESA" | "BANK",
           receiptNumber,
           notes: paymentForm.notes || "",
-        })
-        // Update fee balance (done server-side on addItem)
-        // Auto-create income record
-        const studentName = getStudentName(paymentForm.studentId)
-        const currentUser = await getCurrentUser()
-        await addItem("income", {
-          category: "FEES",
-          amount: Number.parseFloat(paymentForm.amount),
-          description: `Fee payment - ${studentName}`,
-          incomeDate: paymentForm.paymentDate,
-          receiptNumber,
-          createdBy: currentUser?.id || "",
         })
       }
       setIsPaymentDialogOpen(false)
@@ -361,21 +382,29 @@ export default function FeesPage() {
       PENDING: "bg-gray-100 text-gray-700",
       OVERDUE: "bg-red-100 text-red-700",
       NONE: "bg-gray-100 text-gray-500",
+      CANCELLED: "bg-gray-100 text-gray-500",
+      CHARGE: "bg-blue-100 text-blue-700",
+      DISCOUNT: "bg-purple-100 text-purple-700",
+      TAX: "bg-orange-100 text-orange-700",
+      PAYMENT: "bg-green-100 text-green-700",
     }
     return <span className={`inline-flex items-center rounded-full px-2 py-1 text-xs font-medium ${colors[status] || ""}`}>{status}</span>
   }
 
   const loadStudentSummary = async (studentId: string) => {
     setSummaryStudentId(studentId)
-    if (!studentId) { setSummary(null); return }
+    if (!studentId) { setSummary(null); setLedger(null); return }
     setIsSummaryLoading(true)
     setSummary(null)
+    setLedger(null)
     try {
-      const data = await getStudentFeeSummary(studentId)
+      const [data, led] = await Promise.all([getStudentFeeSummary(studentId), getStudentLedger(studentId)])
       setSummary(data)
+      setLedger(led)
     } catch (error) {
       console.error("Failed to load student summary", error)
       setSummary(null)
+      setLedger(null)
     } finally {
       setIsSummaryLoading(false)
     }
@@ -391,6 +420,12 @@ export default function FeesPage() {
   }
 
   const overdueStudentCount = fees.filter(f => f.status === "OVERDUE").length
+
+  const feePreview = computeChargeAmounts(
+    Number.parseFloat(feeForm.grossAmount) || 0,
+    Number.parseFloat(feeForm.discountAmount) || 0,
+    taxRate
+  )
 
   const feeRowClasses = (fee: Fee) => {
     if (fee.status === "OVERDUE") return "bg-red-50/60"
@@ -449,9 +484,9 @@ export default function FeesPage() {
                 )}
                 {summary && !isSummaryLoading && (
                   <>
-                    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
                       <div className="rounded-lg border p-4">
-                        <div className="text-sm text-muted-foreground">Total Course Fee</div>
+                        <div className="text-sm text-muted-foreground">Total Charged</div>
                         <div className="mt-1 text-xl font-bold">{currency} {summary.totalFee.toLocaleString()}</div>
                       </div>
                       <div className="rounded-lg border p-4">
@@ -463,6 +498,10 @@ export default function FeesPage() {
                         <div className={`mt-1 text-xl font-bold ${summary.balance > 0 ? "text-red-600" : "text-gray-900"}`}>{currency} {summary.balance.toLocaleString()}</div>
                       </div>
                       <div className="rounded-lg border p-4">
+                        <div className="text-sm text-muted-foreground">Credit</div>
+                        <div className={`mt-1 text-xl font-bold ${(summary.credit || 0) > 0 ? "text-blue-600" : "text-gray-900"}`}>{currency} {(summary.credit || 0).toLocaleString()}</div>
+                      </div>
+                      <div className="rounded-lg border p-4">
                         <div className="text-sm text-muted-foreground">Next Payment Due</div>
                         <div className="mt-1 text-xl font-bold">{summary.nextDueDate || "—"}</div>
                       </div>
@@ -472,28 +511,30 @@ export default function FeesPage() {
                       {statusBadge(summary.status)}
                     </div>
                     <div className="mt-6">
-                      <h3 className="mb-3 text-sm font-semibold">Payment History</h3>
+                      <h3 className="mb-3 text-sm font-semibold">Statement of Account</h3>
                       <Table>
                         <TableHeader>
                           <TableRow>
                             <TableHead>Date</TableHead>
-                            <TableHead>Amount</TableHead>
-                            <TableHead>Method</TableHead>
-                            <TableHead>Receipt #</TableHead>
-                            <TableHead>Notes</TableHead>
+                            <TableHead>Type</TableHead>
+                            <TableHead>Description</TableHead>
+                            <TableHead className="text-right">Amount</TableHead>
+                            <TableHead className="text-right">Balance</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {summary.payments.length === 0 ? (
-                            <TableRow><TableCell colSpan={5} className="text-center h-20 text-muted-foreground">No payments recorded</TableCell></TableRow>
+                          {!ledger || ledger.entries.length === 0 ? (
+                            <TableRow><TableCell colSpan={5} className="text-center h-20 text-muted-foreground">No charges or payments recorded</TableCell></TableRow>
                           ) : (
-                            summary.payments.map((p) => (
-                              <TableRow key={p.id}>
-                                <TableCell>{p.paymentDate}</TableCell>
-                                <TableCell className="font-medium">{currency} {Number(p.amount).toLocaleString()}</TableCell>
-                                <TableCell>{p.paymentMethod.replace("_", " ")}</TableCell>
-                                <TableCell className="font-mono text-xs">{p.receiptNumber}</TableCell>
-                                <TableCell>{p.notes || "—"}</TableCell>
+                            ledger.entries.map((e) => (
+                              <TableRow key={e.id}>
+                                <TableCell>{e.date ? String(e.date).slice(0, 10) : "—"}</TableCell>
+                                <TableCell>{statusBadge(e.type)}</TableCell>
+                                <TableCell>{e.description}</TableCell>
+                                <TableCell className={`text-right font-medium ${e.amount < 0 ? "text-green-600" : ""}`}>
+                                  {e.amount < 0 ? "-" : ""}{currency} {Math.abs(e.amount).toLocaleString()}
+                                </TableCell>
+                                <TableCell className="text-right">{currency} {e.balance.toLocaleString()}</TableCell>
                               </TableRow>
                             ))
                           )}
@@ -514,9 +555,11 @@ export default function FeesPage() {
                     <CardTitle>Student Fees</CardTitle>
                     <CardDescription>Assign course fees and track payments</CardDescription>
                   </div>
-                  <Button onClick={handleAddFee}>
-                    <Plus className="h-4 w-4 mr-2" /> Assign Fee
-                  </Button>
+                  {canManageFees && (
+                    <Button onClick={handleAddFee}>
+                      <Plus className="h-4 w-4 mr-2" /> Assign Fee
+                    </Button>
+                  )}
                 </div>
               </CardHeader>
               <CardContent>
@@ -545,22 +588,26 @@ export default function FeesPage() {
                         return (
                           <TableRow key={fee.id} className={feeRowClasses(fee)}>
                             <TableCell className="font-medium">{getStudentName(fee.studentId)}</TableCell>
-                            <TableCell>{fee.courseName || getCourseName(fee.courseId)}</TableCell>
+                            <TableCell>{fee.feeType === "COURSE" ? (fee.courseName || getCourseName(fee.courseId || "")) : (fee.description || fee.feeType || "—")}</TableCell>
                             <TableCell>{currency} {Number(fee.totalFee).toLocaleString()}</TableCell>
                             <TableCell className="text-green-600">{currency} {paid.toLocaleString()}</TableCell>
                             <TableCell className={`font-medium ${Number(fee.balance) > 0 ? "text-red-600" : ""}`}>{currency} {Number(fee.balance).toLocaleString()}</TableCell>
                             <TableCell>{feeStatus(fee)}</TableCell>
                             <TableCell className="text-right">
                               <div className="flex justify-end gap-1">
-                                <Button variant="ghost" size="sm" onClick={() => openPaymentDialog(fee)}>
-                                  <DollarSign className="h-4 w-4" />
-                                </Button>
-                                <Button variant="ghost" size="sm" onClick={() => handleEditFee(fee)}>
-                                  <Pencil className="h-4 w-4" />
-                                </Button>
-                                <Button variant="ghost" size="sm" onClick={() => handleDeleteFee(fee.id)}>
-                                  <Trash2 className="h-4 w-4 text-destructive" />
-                                </Button>
+                                {canManageFees && (
+                                  <>
+                                    <Button variant="ghost" size="sm" onClick={() => openPaymentDialog(fee)}>
+                                      <DollarSign className="h-4 w-4" />
+                                    </Button>
+                                    <Button variant="ghost" size="sm" onClick={() => handleEditFee(fee)}>
+                                      <Pencil className="h-4 w-4" />
+                                    </Button>
+                                    <Button variant="ghost" size="sm" onClick={() => handleDeleteFee(fee.id)}>
+                                      <Trash2 className="h-4 w-4 text-destructive" />
+                                    </Button>
+                                  </>
+                                )}
                               </div>
                             </TableCell>
                           </TableRow>
@@ -607,12 +654,16 @@ export default function FeesPage() {
                               <Button variant="ghost" size="sm" onClick={() => openReceipt(p)}>
                                 <Printer className="h-4 w-4" />
                               </Button>
-                              <Button variant="ghost" size="sm" onClick={() => handleEditPayment(p)}>
-                                <Pencil className="h-4 w-4" />
-                              </Button>
-                              <Button variant="ghost" size="sm" onClick={() => handleDeletePayment(p)}>
-                                <Trash2 className="h-4 w-4 text-destructive" />
-                              </Button>
+                              {canManageFees && (
+                                <>
+                                  <Button variant="ghost" size="sm" onClick={() => handleEditPayment(p)}>
+                                    <Pencil className="h-4 w-4" />
+                                  </Button>
+                                  <Button variant="ghost" size="sm" onClick={() => handleDeletePayment(p)}>
+                                    <Trash2 className="h-4 w-4 text-destructive" />
+                                  </Button>
+                                </>
+                              )}
                             </div>
                           </TableCell>
                         </TableRow>
@@ -630,9 +681,9 @@ export default function FeesPage() {
           <DialogContent>
             <form onSubmit={handleSubmitFee}>
               <DialogHeader>
-                <DialogTitle>{isEditingFee ? "Edit Fee" : "Assign Course Fee"}</DialogTitle>
+                <DialogTitle>{isEditingFee ? "Edit Charge" : "Assign Charge"}</DialogTitle>
                 <DialogDescription>
-                  {isEditingFee ? "Update fee amount or due date" : "Set the fee for a student's course"}
+                  {isEditingFee ? "Update the charge, discount or due date" : "Create a course fee, registration fee, or other charge"}
                 </DialogDescription>
               </DialogHeader>
               <div className="grid gap-4 py-4">
@@ -643,7 +694,7 @@ export default function FeesPage() {
                       const student = students.find(s => s.id === v)
                       const cId = student?.courseId || ""
                       const course = courses.find(c => c.id === cId)
-                      setFeeForm({ ...feeForm, studentId: v, courseId: cId, totalFee: course?.fee?.toString() || "" })
+                      setFeeForm({ ...feeForm, studentId: v, courseId: cId, grossAmount: course?.fee?.toString() || feeForm.grossAmount })
                     }} required>
                       <SelectTrigger><SelectValue placeholder="Select student" /></SelectTrigger>
                       <SelectContent>
@@ -655,22 +706,63 @@ export default function FeesPage() {
                   </div>
                 )}
                 <div className="grid gap-2">
-                  <Label>Course</Label>
-                  <Select value={feeForm.courseId} onValueChange={(v) => {
-                    const course = courses.find(c => c.id === v)
-                    setFeeForm({ ...feeForm, courseId: v, totalFee: course?.fee?.toString() || feeForm.totalFee })
-                  }} required>
-                    <SelectTrigger><SelectValue placeholder="Select course" /></SelectTrigger>
+                  <Label>Charge Type</Label>
+                  <Select value={feeForm.feeType} onValueChange={(v) => {
+                    const next = v as FeeType
+                    setFeeForm((f) => ({
+                      ...f,
+                      feeType: next,
+                      grossAmount: next === "REGISTRATION" && !f.grossAmount ? String(registrationFee || "") : f.grossAmount,
+                    }))
+                  }}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      {courses.map((c) => (
-                        <SelectItem key={c.id} value={c.id}>{c.name} {c.fee ? `- ${currency} ${c.fee}` : ""}</SelectItem>
-                      ))}
+                      <SelectItem value="COURSE">Course fee</SelectItem>
+                      <SelectItem value="REGISTRATION">Registration / admission fee</SelectItem>
+                      <SelectItem value="OTHER">Other charge</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
+                {feeForm.feeType === "COURSE" ? (
+                  <div className="grid gap-2">
+                    <Label>Course</Label>
+                    <Select value={feeForm.courseId} onValueChange={(v) => {
+                      const course = courses.find(c => c.id === v)
+                      setFeeForm({ ...feeForm, courseId: v, grossAmount: course?.fee?.toString() || feeForm.grossAmount })
+                    }} required>
+                      <SelectTrigger><SelectValue placeholder="Select course" /></SelectTrigger>
+                      <SelectContent>
+                        {courses.map((c) => (
+                          <SelectItem key={c.id} value={c.id}>{c.name} {c.fee ? `- ${currency} ${c.fee}` : ""}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ) : (
+                  <div className="grid gap-2">
+                    <Label>Description</Label>
+                    <Input value={feeForm.description} onChange={(e) => setFeeForm({ ...feeForm, description: e.target.value })} placeholder={feeForm.feeType === "REGISTRATION" ? "Registration fee" : "e.g. Exam fee, Uniform"} />
+                  </div>
+                )}
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="grid gap-2">
+                    <Label>Gross Amount ({currency})</Label>
+                    <Input type="number" value={feeForm.grossAmount} onChange={(e) => setFeeForm({ ...feeForm, grossAmount: e.target.value })} required />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label>Discount ({currency})</Label>
+                    <Input type="number" value={feeForm.discountAmount} onChange={(e) => setFeeForm({ ...feeForm, discountAmount: e.target.value })} placeholder="0" />
+                  </div>
+                </div>
                 <div className="grid gap-2">
-                  <Label>Total Fee ({currency})</Label>
-                  <Input type="number" value={feeForm.totalFee} onChange={(e) => setFeeForm({ ...feeForm, totalFee: e.target.value })} required />
+                  <Label>Discount Reason (Optional)</Label>
+                  <Input value={feeForm.discountReason} onChange={(e) => setFeeForm({ ...feeForm, discountReason: e.target.value })} placeholder="e.g. Sibling / scholarship" />
+                </div>
+                <div className="rounded-lg border bg-muted/40 p-3 text-sm">
+                  <div className="flex justify-between"><span className="text-muted-foreground">Gross</span><span>{currency} {feePreview.grossAmount.toLocaleString()}</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Discount</span><span className="text-red-600">- {currency} {feePreview.discountAmount.toLocaleString()}</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Tax/VAT ({taxRate}%)</span><span>+ {currency} {feePreview.taxAmount.toLocaleString()}</span></div>
+                  <div className="mt-1 flex justify-between border-t pt-1 font-semibold"><span>Net Payable</span><span>{currency} {feePreview.totalFee.toLocaleString()}</span></div>
                 </div>
                 <div className="grid gap-2">
                   <Label>Due Date (Optional)</Label>

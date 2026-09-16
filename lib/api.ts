@@ -1,6 +1,9 @@
 import { turso } from "./turso-client"
 import { hashPassword, verifyPassword, getStoredToken, setStoredToken, clearStoredToken } from "./auth-client"
-import type { UserRole, IncomeCategory, ExpenseCategory, Payment, Fee, TeacherCommissionSummary } from "./types"
+import type {
+  UserRole, IncomeCategory, ExpenseCategory, Payment, Fee, TeacherCommissionSummary,
+  FeeType, LedgerEntry, LedgerEntryType, StudentLedger,
+} from "./types"
 
 // --- Auth (client talks to server route handlers; secrets stay server-side) ---
 
@@ -640,8 +643,8 @@ export async function createUser(userData: any) {
         ],
       })
     }
-    // Auto-assign a fee for every enrolled course, create enrollment progress
-    // records and compute teacher commission per course.
+    // Enroll in every selected course (creates the enrollment, its charge and
+    // teacher commission) and charge the one-off registration fee if configured.
     const courseIds = uniqueIds(
       Array.isArray(userData.courseIds) && userData.courseIds.length
         ? userData.courseIds
@@ -649,24 +652,7 @@ export async function createUser(userData: any) {
           ? [userData.courseId]
           : []
     )
-    await createFeesForStudent(userId, courseIds)
-    for (const cid of courseIds) {
-      // Auto-create enrollment progress record
-      await turso.execute({
-        sql: "insert into enrollment_progress (id, studentId, courseId, progressPercent, status, startDate) values (?, ?, ?, 0, 'ENROLLED', ?)",
-        args: [crypto.randomUUID(), userId, cid, userData.admissionDate || null],
-      })
-      // Auto-compute teacher commission for this enrollment
-      try {
-        await computeCommissionForEnrollment(userId, cid)
-      } catch (e) {
-        const msg = (e as Error)?.message || "unknown error"
-        if (!msg.includes("Commission configuration")) {
-          // A genuine DB error should not silently break user creation
-          throw e
-        }
-      }
-    }
+    await syncStudentEnrollments(userId, courseIds, { dueDate: userData.dueDate })
   } else if (userData.role === "TEACHER") {
     await turso.execute({
       sql: "insert into teachers (id, staffId, department, specialization, firstName, lastName) values (?, ?, ?, ?, ?, ?)",
@@ -725,8 +711,8 @@ export async function registerStudent(userData: any) {
     ],
   })
 
-  // Auto-assign a fee for every enrolled course (multi-course students get a
-  // separate fee record per course).
+  // Enroll in every selected course (creates the enrollment, its charge and
+  // teacher commission) and charge the one-off registration fee if configured.
   const courseIds = uniqueIds(
     Array.isArray(userData.courseIds) && userData.courseIds.length
       ? userData.courseIds
@@ -734,7 +720,7 @@ export async function registerStudent(userData: any) {
         ? [userData.courseId]
         : []
   )
-  await createFeesForStudent(userId, courseIds)
+  await syncStudentEnrollments(userId, courseIds, { dueDate: userData.dueDate })
 
   return { success: true, userId }
 }
@@ -745,26 +731,192 @@ export function generateStudentNumber(): string {
   return `STU${year}${random}`
 }
 
-// Create one PENDING fee per enrolled course so multi-course students get a
-// separate fee record per course.
-async function createFeesForStudent(studentId: string, courseIds: string[]) {
-  const ids = uniqueIds(courseIds)
-  if (!ids.length) return
-  const courseRs = await turso.execute({
-    sql: `select id, fee from courses where id in (${placeholders(ids.length)})`,
-    args: ids,
-  })
-  const feeByCourse = new Map<string, number>()
-  for (const r of courseRs.rows as any[]) {
-    feeByCourse.set(r.id, Number(r.fee) || 0)
+// --- Charges, discounts, tax & enrollment billing ---
+
+export interface ChargeInput {
+  studentId: string
+  courseId?: string | null
+  feeType?: FeeType
+  description?: string
+  grossAmount: number
+  discountAmount?: number
+  discountReason?: string
+  dueDate?: string | null
+  /** Tax/VAT rate in percent. Falls back to institution settings when omitted. */
+  taxRate?: number
+}
+
+function round2(n: number): number {
+  return Math.round((Number(n) || 0) * 100) / 100
+}
+
+/** gross - discount + tax = net (all rounded to 2 decimals). */
+export function computeChargeAmounts(grossAmount: number, discountAmount = 0, taxRate = 0) {
+  const gross = round2(Math.max(0, Number(grossAmount) || 0))
+  const discount = round2(Math.min(Math.max(0, Number(discountAmount) || 0), gross))
+  const taxable = gross - discount
+  const tax = round2(taxable * ((Number(taxRate) || 0) / 100))
+  const net = round2(taxable + tax)
+  return { grossAmount: gross, discountAmount: discount, taxAmount: tax, totalFee: net }
+}
+
+/** Reads registration fee, tax rate and currency from institution settings. */
+export async function getFinanceConfig() {
+  const rs = await turso.execute({ sql: "select * from institution_settings limit 1" })
+  const s = rs.rows[0] as any
+  return {
+    currency: s?.currency || "KES",
+    registrationFee: Number(s?.registrationFee) || 0,
+    taxRate: Number(s?.taxRate) || 0,
   }
-  for (const cid of ids) {
-    const fee = feeByCourse.get(cid) ?? 0
-    await turso.execute({
-      sql: "insert into fees (id, studentId, courseId, totalFee, balance, status) values (?, ?, ?, ?, ?, ?)",
-      args: [crypto.randomUUID(), studentId, cid, fee, fee, "PENDING"],
+}
+
+/** Insert a single charge (course fee, registration fee, or other). */
+export async function createStudentCharge(input: ChargeInput): Promise<string> {
+  requireAuth()
+  const taxRate = input.taxRate !== undefined ? input.taxRate : (await getFinanceConfig()).taxRate
+  const { grossAmount, discountAmount, taxAmount, totalFee } = computeChargeAmounts(
+    input.grossAmount,
+    input.discountAmount || 0,
+    taxRate
+  )
+  const id = crypto.randomUUID()
+  await turso.execute({
+    sql: `insert into fees (id, studentId, courseId, feeType, description, grossAmount, discountAmount, discountReason, taxAmount, totalFee, balance, dueDate, status, createdAt) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    args: [
+      id, input.studentId, input.courseId || null, input.feeType || "COURSE",
+      input.description || null, grossAmount, discountAmount, input.discountReason || null,
+      taxAmount, totalFee, totalFee, input.dueDate || null,
+      totalFee <= 0 ? "PAID" : "PENDING", new Date().toISOString(),
+    ],
+  })
+  return id
+}
+
+/** Charge the one-off registration fee once per student (no-op if already charged or zero). */
+export async function addRegistrationFeeIfNeeded(studentId: string): Promise<boolean> {
+  const cfg = await getFinanceConfig()
+  if (cfg.registrationFee <= 0) return false
+  const existing = await turso.execute({
+    sql: "select id from fees where studentId = ? and feeType = 'REGISTRATION'",
+    args: [studentId],
+  })
+  if (existing.rows.length > 0) return false
+  await createStudentCharge({
+    studentId, courseId: null, feeType: "REGISTRATION",
+    description: "Registration / admission fee",
+    grossAmount: cfg.registrationFee, taxRate: cfg.taxRate,
+  })
+  return true
+}
+
+/**
+ * Enroll a student in a course and create its charge atomically. Idempotent:
+ * re-enrolling an already-enrolled course is a no-op.
+ */
+export async function enrollStudentInCourse(
+  studentId: string,
+  courseId: string,
+  opts: { discountAmount?: number; discountReason?: string; dueDate?: string; grossAmount?: number; startDate?: string } = {}
+): Promise<{ success: boolean; alreadyEnrolled?: boolean }> {
+  requireAuth()
+  const existing = await turso.execute({
+    sql: "select id from enrollment_progress where studentId = ? and courseId = ?",
+    args: [studentId, courseId],
+  })
+  if (existing.rows.length > 0) return { success: true, alreadyEnrolled: true }
+
+  const cfg = await getFinanceConfig()
+  const courseRs = await turso.execute({ sql: "select id, fee from courses where id = ?", args: [courseId] })
+  const course = courseRs.rows[0] as any
+  if (!course) throw new Error("Course not found")
+
+  await turso.execute({
+    sql: "insert into enrollment_progress (id, studentId, courseId, progressPercent, status, startDate) values (?, ?, ?, 0, 'ENROLLED', ?)",
+    args: [crypto.randomUUID(), studentId, courseId, opts.startDate || null],
+  })
+  await createStudentCharge({
+    studentId, courseId, feeType: "COURSE",
+    grossAmount: opts.grossAmount ?? (Number(course.fee) || 0),
+    discountAmount: opts.discountAmount || 0,
+    discountReason: opts.discountReason,
+    dueDate: opts.dueDate || null,
+    taxRate: cfg.taxRate,
+  })
+  await addRegistrationFeeIfNeeded(studentId)
+  try {
+    await computeCommissionForEnrollment(studentId, courseId)
+  } catch (e) {
+    const msg = (e as Error)?.message || ""
+    // Missing commission config, or an actor without payroll rights, must not
+    // block enrollment — an admin can recompute commissions later.
+    if (!msg.includes("Commission configuration") && !/forbidden|permission/i.test(msg)) throw e
+  }
+  await recomputeFeeForStudent(studentId)
+  return { success: true }
+}
+
+/**
+ * Remove a student from a course. Deletes the enrollment and its charge when
+ * unpaid; when payments exist the charge is cancelled so those payments become
+ * credit on the student's account (no automatic refund).
+ */
+export async function unenrollStudentFromCourse(studentId: string, courseId: string): Promise<{ success: boolean }> {
+  requireAuth()
+  await turso.execute({
+    sql: "delete from enrollment_progress where studentId = ? and courseId = ?",
+    args: [studentId, courseId],
+  })
+  const feeRs = await turso.execute({
+    sql: "select id from fees where studentId = ? and courseId = ? and feeType = 'COURSE' and status != 'CANCELLED'",
+    args: [studentId, courseId],
+  })
+  const fee = feeRs.rows[0] as any
+  if (fee) {
+    const payRs = await turso.execute({
+      sql: "select id from payments where feeId = ? limit 1",
+      args: [fee.id],
+    })
+    if (payRs.rows.length === 0) {
+      await turso.execute({ sql: "delete from fees where id = ?", args: [fee.id] })
+    } else {
+      await turso.execute({
+        sql: "update fees set status = ?, balance = ? where id = ?",
+        args: ["CANCELLED", 0, fee.id],
+      })
+    }
+  }
+  await recomputeFeeForStudent(studentId)
+  return { success: true }
+}
+
+/**
+ * Reconcile a student's enrollments with a target course set: adds missing
+ * enrollments (+ charges), removes dropped ones (+ void/delete their charges),
+ * and ensures the registration fee exists.
+ */
+export async function syncStudentEnrollments(
+  studentId: string,
+  courseIds: string[],
+  opts: { discountByCourse?: Record<string, number>; dueDate?: string } = {}
+): Promise<void> {
+  const target = new Set(uniqueIds(courseIds))
+  const rs = await turso.execute({
+    sql: "select courseId from enrollment_progress where studentId = ?",
+    args: [studentId],
+  })
+  const current = new Set((rs.rows as any[]).map((r) => r.courseId))
+  for (const cid of target) {
+    if (current.has(cid)) continue
+    await enrollStudentInCourse(studentId, cid, {
+      discountAmount: opts.discountByCourse?.[cid] || 0,
+      dueDate: opts.dueDate,
     })
   }
+  for (const cid of current) {
+    if (!target.has(cid)) await unenrollStudentFromCourse(studentId, cid)
+  }
+  await addRegistrationFeeIfNeeded(studentId)
 }
 
 // --- Fee tracking & Teacher commission ---
@@ -777,13 +929,14 @@ export async function updateOverdueFees() {
   })
 }
 
-export async function recomputeFeeForStudent(studentId: string) {
+export async function recomputeFeeForStudent(studentId: string): Promise<{ credit: number }> {
   const feesRs = await turso.execute({ sql: "select * from fees where studentId = ?", args: [studentId] })
-  const fees = feesRs.rows as Fee[]
-  if (fees.length === 0) return
+  const allFees = feesRs.rows as Fee[]
+  // Cancelled charges no longer count, and any payments attached to them are
+  // released back into the pool (they become credit).
+  const fees = allFees.filter((f) => f.status !== "CANCELLED")
+  const activeIds = new Set(fees.map((f) => f.id))
 
-  // Sum payments per fee. Payments that were recorded without a feeId are
-  // applied to the oldest unpaid fee first (legacy data migration).
   const payRs = await turso.execute({
     sql: "select feeId, amount from payments where studentId = ?",
     args: [studentId],
@@ -793,7 +946,7 @@ export async function recomputeFeeForStudent(studentId: string) {
   let unattached = 0
   for (const p of payRows) {
     const amount = Number(p.amount) || 0
-    if (p.feeId) paidByFee[p.feeId] = (paidByFee[p.feeId] || 0) + amount
+    if (p.feeId && activeIds.has(p.feeId)) paidByFee[p.feeId] = (paidByFee[p.feeId] || 0) + amount
     else unattached += amount
   }
 
@@ -812,9 +965,12 @@ export async function recomputeFeeForStudent(studentId: string) {
     remaining -= applied
   }
 
+  // Unallocated cash and per-fee overpayments become the student's credit.
+  let credit = remaining
   for (const fee of fees) {
     const totalFee = Number(fee.totalFee) || 0
     const paid = paidByFee[fee.id] || 0
+    credit += Math.max(0, paid - totalFee)
     const balance = Math.max(0, totalFee - paid)
     const status = balance <= 0 ? "PAID" : paid > 0 ? "PARTIAL" : "PENDING"
     await turso.execute({
@@ -822,6 +978,39 @@ export async function recomputeFeeForStudent(studentId: string) {
       args: [balance, status, fee.id],
     })
   }
+  return { credit: round2(credit) }
+}
+
+/** Record a fee payment and its matching income entry in one step. */
+export async function recordStudentPayment(input: {
+  studentId: string
+  feeId?: string | null
+  amount: number
+  paymentDate: string
+  paymentMethod: "CASH" | "M_PESA" | "BANK"
+  receiptNumber: string
+  notes?: string
+}) {
+  requireAuth()
+  await checkKeyPermission("payments", "add")
+  const user = await getCurrentUser()
+  const id = crypto.randomUUID()
+  await turso.execute({
+    sql: "insert into payments (id, studentId, feeId, amount, paymentDate, paymentMethod, receiptNumber, notes, createdBy) values (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    args: [id, input.studentId, input.feeId || null, input.amount, input.paymentDate, input.paymentMethod, input.receiptNumber, input.notes || null, user?.id || null],
+  })
+  const stuRs = await turso.execute({
+    sql: "select firstName, lastName from students where id = ?",
+    args: [input.studentId],
+  })
+  const s = stuRs.rows[0] as any
+  const studentName = s ? `${s.firstName || ""} ${s.lastName || ""}`.trim() || "Student" : "Student"
+  await turso.execute({
+    sql: "insert into income (id, category, amount, description, incomeDate, receiptNumber, createdBy) values (?, 'FEES', ?, ?, ?, ?, ?)",
+    args: [crypto.randomUUID(), input.amount, `Fee payment - ${studentName}`, input.paymentDate, input.receiptNumber, user?.id || null],
+  })
+  await recomputeFeeForStudent(input.studentId)
+  return { success: true, id }
 }
 
 export async function recordPayment(input: {
@@ -847,7 +1036,7 @@ export async function getStudentFeeSummary(studentId: string) {
   await updateOverdueFees()
 
   const feeRs = await turso.execute({ sql: "select * from fees where studentId = ?", args: [studentId] })
-  const fees = feeRs.rows as Fee[]
+  const fees = (feeRs.rows as Fee[]).filter((f) => f.status !== "CANCELLED")
   const payRs = await turso.execute({
     sql: "select * from payments where studentId = ? order by paymentDate desc",
     args: [studentId],
@@ -858,6 +1047,7 @@ export async function getStudentFeeSummary(studentId: string) {
   const totalFee = fees.reduce((s, f) => s + (Number(f.totalFee) || 0), 0)
   const amountPaid = payments.reduce((s, p) => s + (Number(p.amount) || 0), 0)
   const balance = Math.max(0, totalFee - amountPaid)
+  const credit = Math.max(0, amountPaid - totalFee)
 
   const nonPaidFees = fees.filter(f => f.status !== "PAID")
   const dueDates = nonPaidFees
@@ -868,7 +1058,76 @@ export async function getStudentFeeSummary(studentId: string) {
 
   const status = fees.length === 0 ? "NONE" : balance <= 0 ? "PAID" : amountPaid > 0 ? "PARTIAL" : "OVERDUE"
 
-  return { totalFee, amountPaid, balance, nextDueDate, status, payments }
+  return { totalFee, amountPaid, balance, credit, nextDueDate, status, payments, charges: fees }
+}
+
+/**
+ * Build a chronological statement for a student: charges (with discount and
+ * tax lines), payments, and a running balance.
+ */
+export async function getStudentLedger(studentId: string): Promise<StudentLedger> {
+  requireAuth()
+  const feeRs = await turso.execute({
+    sql: "select * from fees where studentId = ? order by createdAt asc",
+    args: [studentId],
+  })
+  const fees = (feeRs.rows as Fee[]).filter((f) => f.status !== "CANCELLED")
+  const payRs = await turso.execute({
+    sql: "select * from payments where studentId = ? order by paymentDate asc",
+    args: [studentId],
+  })
+  const payments = payRs.rows as Payment[]
+
+  const raw: Array<{ id: string; date: string; type: LedgerEntryType; description: string; amount: number }> = []
+  let gross = 0, discount = 0, tax = 0, net = 0
+  for (const f of fees) {
+    const g = Number(f.grossAmount ?? f.totalFee) || 0
+    const d = Number(f.discountAmount) || 0
+    const t = Number(f.taxAmount) || 0
+    const label = f.feeType === "REGISTRATION"
+      ? (f.description || "Registration fee")
+      : f.feeType === "OTHER"
+        ? (f.description || "Charge")
+        : (f.courseName || "Course fee")
+    const date = f.createdAt || f.dueDate || ""
+    raw.push({ id: f.id, date, type: "CHARGE", description: label, amount: g })
+    if (d > 0) raw.push({ id: `${f.id}-d`, date, type: "DISCOUNT", description: `Discount${f.discountReason ? ` — ${f.discountReason}` : ""}`, amount: -d })
+    if (t > 0) raw.push({ id: `${f.id}-t`, date, type: "TAX", description: "Tax / VAT", amount: t })
+    gross += g; discount += d; tax += t; net += Number(f.totalFee) || 0
+  }
+  let paid = 0
+  for (const p of payments) {
+    const amount = Number(p.amount) || 0
+    raw.push({
+      id: p.id,
+      date: p.paymentDate || p.createdAt || "",
+      type: "PAYMENT",
+      description: `Payment (${p.paymentMethod.replace("_", " ")}) #${p.receiptNumber}`,
+      amount: -amount,
+    })
+    paid += amount
+  }
+
+  raw.sort((a, b) => String(a.date).localeCompare(String(b.date)) || a.type.localeCompare(b.type))
+  let running = 0
+  const entries: LedgerEntry[] = raw.map((e) => {
+    running = round2(running + e.amount)
+    return { id: e.id, date: e.date, type: e.type, description: e.description, amount: round2(e.amount), balance: running }
+  })
+
+  return {
+    studentId,
+    entries,
+    totals: {
+      gross: round2(gross),
+      discount: round2(discount),
+      tax: round2(tax),
+      net: round2(net),
+      paid: round2(paid),
+      balance: round2(Math.max(0, net - paid)),
+      credit: round2(Math.max(0, paid - net)),
+    },
+  }
 }
 
 export async function getCourseTeachers(courseId: string): Promise<string[]> {

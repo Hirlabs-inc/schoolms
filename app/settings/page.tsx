@@ -39,6 +39,8 @@ export default function SettingsPage() {
         contactEmail: "",
         contactPhone: "",
         address: "",
+        registrationFee: 0,
+        taxRate: 0,
     })
     const [isSavingSettings, setIsSavingSettings] = useState(false)
     const [settingsMessage, setSettingsMessage] = useState<{ type: "success" | "error"; text: string } | null>(null)
@@ -215,6 +217,32 @@ export default function SettingsPage() {
                                                     placeholder="KES"
                                                     required
                                                 />
+                                            </div>
+                                            <div className="grid grid-cols-2 gap-4">
+                                                <div className="space-y-2">
+                                                    <Label htmlFor="registrationFee">Registration Fee</Label>
+                                                    <Input
+                                                        id="registrationFee"
+                                                        type="number"
+                                                        min="0"
+                                                        value={instSettings.registrationFee ?? 0}
+                                                        onChange={(e) => setInstSettings({ ...instSettings, registrationFee: Number(e.target.value) })}
+                                                        placeholder="0"
+                                                    />
+                                                    <p className="text-xs text-muted-foreground">Charged once when a student first enrolls.</p>
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <Label htmlFor="taxRate">Tax / VAT Rate (%)</Label>
+                                                    <Input
+                                                        id="taxRate"
+                                                        type="number"
+                                                        min="0"
+                                                        value={instSettings.taxRate ?? 0}
+                                                        onChange={(e) => setInstSettings({ ...instSettings, taxRate: Number(e.target.value) })}
+                                                        placeholder="0"
+                                                    />
+                                                    <p className="text-xs text-muted-foreground">Applied to every new charge.</p>
+                                                </div>
                                             </div>
                                             <div className="space-y-2">
                                                 <Label htmlFor="receiptHeader">Receipt Header</Label>

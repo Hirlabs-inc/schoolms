@@ -103,6 +103,18 @@ create table if not exists fees (
   updatedat text
 );
 
+-- Finance extensions: a charge can be a COURSE fee, a one-off REGISTRATION
+-- fee, or an OTHER charge. grossamount is the list price, discountamount the
+-- reduction, taxamount the VAT/sales tax, and totalfee the net payable
+-- (gross - discount + tax). All are idempotent so existing databases upgrade
+-- in place when scripts/schema.postgres.sql is re-applied.
+alter table fees add column if not exists feetype text default 'COURSE';
+alter table fees add column if not exists grossamount numeric;
+alter table fees add column if not exists discountamount numeric default 0;
+alter table fees add column if not exists discountreason text;
+alter table fees add column if not exists taxamount numeric default 0;
+alter table fees add column if not exists description text;
+
 create table if not exists payments (
   id text primary key,
   studentid text references students(id),
@@ -213,6 +225,12 @@ create table if not exists institution_settings (
   createdat text default (now()::text),
   updatedat text
 );
+
+-- Finance configuration: a one-off registration/admission fee charged when a
+-- student first enrolls, and an optional tax/VAT rate (percent) applied to
+-- every charge. Idempotent for existing databases.
+alter table institution_settings add column if not exists registrationfee numeric default 0;
+alter table institution_settings add column if not exists taxrate numeric default 0;
 
 -- Role-based access control (RBAC).
 -- Each row grants (or denies) a named permission to a role.
