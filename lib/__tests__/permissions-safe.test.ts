@@ -1,6 +1,6 @@
-import { describe, it, expect, beforeEach } from "vitest"
+import { describe, it, expect, beforeEach, vi } from "vitest"
 import { resetDb, tables } from "../../vitest.setup"
-import { getItems, getItemsSafe } from "../api"
+import { getItems, getItemsSafe, updateOverdueFees } from "../api"
 
 async function seedAdmin() {
   const bcrypt = await import("bcryptjs")
@@ -39,5 +39,23 @@ describe("getItemsSafe", () => {
   it("returns [] for an unknown key", async () => {
     await seedAdmin()
     expect(await getItemsSafe("notARealTable")).toEqual([])
+  })
+})
+
+describe("updateOverdueFees is best-effort", () => {
+  beforeEach(() => resetDb())
+
+  it("does not throw when the update is denied (view-only fees role)", async () => {
+    const original = globalThis.fetch
+    globalThis.fetch = vi.fn(async () => ({
+      ok: false,
+      status: 403,
+      json: async () => ({ error: "Forbidden" }),
+    })) as any
+    try {
+      await expect(updateOverdueFees()).resolves.toBeUndefined()
+    } finally {
+      globalThis.fetch = original
+    }
   })
 })

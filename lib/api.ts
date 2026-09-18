@@ -1009,11 +1009,18 @@ export async function syncStudentEnrollments(
 // --- Fee tracking & Teacher commission ---
 
 export async function updateOverdueFees() {
-  const today = new Date().toISOString().split("T")[0]
-  await turso.execute({
-    sql: "update fees set status = 'OVERDUE' where balance > 0 and dueDate < ?",
-    args: [today],
-  })
+  // Best-effort background status update. Callers who can only *view* fees
+  // (no manage_fees) must still be able to load fee pages, so a denied update
+  // is swallowed rather than thrown.
+  try {
+    const today = new Date().toISOString().split("T")[0]
+    await turso.execute({
+      sql: "update fees set status = 'OVERDUE' where balance > 0 and dueDate < ?",
+      args: [today],
+    })
+  } catch {
+    // ignore — e.g. missing manage_fees permission
+  }
 }
 
 export async function recomputeFeeForStudent(studentId: string): Promise<{ credit: number }> {
