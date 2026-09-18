@@ -2,13 +2,22 @@ import "server-only"
 import { SignJWT, jwtVerify, decodeJwt } from "jose"
 import bcrypt from "bcryptjs"
 
-const SECRET_VALUE = process.env.JWT_SECRET
-if (process.env.NODE_ENV === "production" && !SECRET_VALUE) {
-  throw new Error("FATAL: JWT_SECRET environment variable is required in production")
+const DEV_FALLBACK = "trainify-dev-insecure-secret-do-not-use-in-production"
+
+// Resolve the signing key lazily (at request time), NOT at module load. This
+// keeps `next build` working without runtime secrets — Next imports route
+// modules during page-data collection. In production a missing JWT_SECRET still
+// fails, but only when a token is actually signed/verified.
+function getSecretKey(): Uint8Array {
+  const value = process.env.JWT_SECRET
+  if (!value) {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error("FATAL: JWT_SECRET environment variable is required in production")
+    }
+    return new TextEncoder().encode(DEV_FALLBACK)
+  }
+  return new TextEncoder().encode(value)
 }
-const SECRET_KEY = new TextEncoder().encode(
-  SECRET_VALUE || "trainify-dev-insecure-secret-do-not-use-in-production"
-)
 
 export interface SessionUser {
   id: string
@@ -32,13 +41,13 @@ export async function createToken(user: SessionUser): Promise<string> {
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
     .setExpirationTime("7d")
-    .sign(SECRET_KEY)
+    .sign(getSecretKey())
 }
 
 // Server-side: verifies a token's signature using the secret.
 export async function verifyToken(token: string): Promise<SessionUser | null> {
   try {
-    const { payload } = await jwtVerify(token, SECRET_KEY)
+    const { payload } = await jwtVerify(token, getSecretKey())
     return {
       id: payload.sub as string,
       email: payload.email as string,
