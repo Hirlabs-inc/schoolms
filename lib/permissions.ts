@@ -210,7 +210,7 @@ export async function setRolePermission(
 ): Promise<void> {
   await turso.execute({
     sql: "insert into role_permissions (role, permission, granted) values (?, ?, ?) on conflict (role, permission) do update set granted = excluded.granted",
-    args: [role, permission, granted ? 1 : 0],
+    args: [role, permission, granted],
   })
 }
 

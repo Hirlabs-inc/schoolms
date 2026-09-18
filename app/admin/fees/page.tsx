@@ -19,7 +19,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { getItems, addItem, updateItem, deleteItem, getCurrentUser, getStudentFeeSummary, getStudentLedger, updateOverdueFees, computeChargeAmounts, recordStudentPayment } from "@/lib/api"
+import { getItems, getItemsSafe, addItem, updateItem, deleteItem, getCurrentUser, getStudentFeeSummary, getStudentLedger, updateOverdueFees, computeChargeAmounts, recordStudentPayment } from "@/lib/api"
 import { usePermissions } from "@/contexts/permission-context"
 import type { Student, Fee, Payment, Course, InstitutionSettings, Income, FeeType, StudentLedger } from "@/lib/types"
 import { VisuallyHidden } from "@radix-ui/react-visually-hidden"
@@ -80,11 +80,11 @@ export default function FeesPage() {
     try {
       await updateOverdueFees()
       const [studentsData, coursesData, feesData, paymentsData, settings] = await Promise.all([
-        getItems<Student>("students"),
-        getItems<Course>("courses"),
+        getItemsSafe<Student>("students"),
+        getItemsSafe<Course>("courses"),
         getItems<Fee>("fees"),
-        getItems<Payment>("payments"),
-        getItems<InstitutionSettings>("institutionSettings"),
+        getItemsSafe<Payment>("payments"),
+        getItemsSafe<InstitutionSettings>("institutionSettings"),
       ])
       if (settings.length > 0) {
         setCurrency(settings[0].currency || "KES")

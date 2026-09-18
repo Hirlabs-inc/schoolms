@@ -11,7 +11,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
-import { getItems, addItem, updateItem, deleteItem, processPayroll, getTeacherCommissionSummaries, getTeacherCommissionBreakdown, recordCommissionPayment, recomputeAllCommissions, type TeacherCommissionCourseRow } from "@/lib/api"
+import { getItems, getItemsSafe, addItem, updateItem, deleteItem, processPayroll, getTeacherCommissionSummaries, getTeacherCommissionBreakdown, recordCommissionPayment, recomputeAllCommissions, type TeacherCommissionCourseRow } from "@/lib/api"
 import type { Teacher, TeacherContract, PayrollRecord, InstitutionSettings, EnrollmentProgress, Course, Student, TeacherCommissionSummary } from "@/lib/types"
 import { Plus, Trash2, Loader2, Pencil, Wallet, Calendar } from "lucide-react"
 import { useEffect, useState, Fragment } from "react"
@@ -72,11 +72,11 @@ export default function PayrollPage() {
     try {
       const [c, t, p, settings, enr, crs] = await Promise.all([
         getItems<TeacherContract>("teacherContracts"),
-        getItems<Teacher>("teachers"),
+        getItemsSafe<Teacher>("teachers"),
         getItems<PayrollRecord>("payrollRecords"),
-        getItems<InstitutionSettings>("institutionSettings"),
-        getItems<EnrollmentProgress>("enrollmentProgress"),
-        getItems<Course>("courses"),
+        getItemsSafe<InstitutionSettings>("institutionSettings"),
+        getItemsSafe<EnrollmentProgress>("enrollmentProgress"),
+        getItemsSafe<Course>("courses"),
       ])
       setContracts(c)
       setTeachers(t)

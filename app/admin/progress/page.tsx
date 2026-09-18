@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
-import { getItems, addItem, updateItem, deleteItem, getEnrollmentStats } from "@/lib/api"
+import { getItems, getItemsSafe, addItem, updateItem, deleteItem, getEnrollmentStats } from "@/lib/api"
 import type { EnrollmentProgress, InstitutionSettings, Student, Course } from "@/lib/types"
 import { Plus, Trash2, Loader2, Pencil, BarChart3 } from "lucide-react"
 import { useEffect, useState } from "react"
@@ -65,8 +65,8 @@ export default function ProgressPage() {
     try {
       const [r, s, c, statsData] = await Promise.all([
         getItems<EnrollmentProgress>("enrollmentProgress"),
-        getItems<Student>("students"),
-        getItems<Course>("courses"),
+        getItemsSafe<Student>("students"),
+        getItemsSafe<Course>("courses"),
         getEnrollmentStats(),
       ])
       setRecords(r)

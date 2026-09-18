@@ -19,7 +19,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
-import { getItems, addItem, updateItem, deleteItem, getCourseTeachers, assignTeacherToCourse, removeTeacherFromCourse } from "@/lib/api"
+import { getItems, getItemsSafe, addItem, updateItem, deleteItem, getCourseTeachers, assignTeacherToCourse, removeTeacherFromCourse } from "@/lib/api"
 import type { Course, Student, Fee, InstitutionSettings, Teacher, EnrollmentProgress } from "@/lib/types"
 import { Plus, Trash2, Pencil, Search, Filter, Loader2, AlertTriangle, Users, Eye } from "lucide-react"
 import { useEffect, useState } from "react"
@@ -55,12 +55,15 @@ export default function CoursesPage() {
   const loadData = async () => {
     setIsLoading(true)
     try {
+      // Courses are the page's primary data; the rest are secondary lookups that
+      // must not blank the page when the role lacks a permission (e.g. a
+      // secretary has view_courses but not view_teachers).
       const [data, settings, teachersData, studentsData, enrollmentData] = await Promise.all([
         getItems<Course>("courses"),
-        getItems<InstitutionSettings>("institutionSettings"),
-        getItems<Teacher>("teachers"),
-        getItems<Student>("students"),
-        getItems<EnrollmentProgress>("enrollmentProgress"),
+        getItemsSafe<InstitutionSettings>("institutionSettings"),
+        getItemsSafe<Teacher>("teachers"),
+        getItemsSafe<Student>("students"),
+        getItemsSafe<EnrollmentProgress>("enrollmentProgress"),
       ])
       setCourses(data)
       setTeachers(teachersData)

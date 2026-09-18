@@ -23,7 +23,7 @@ async function main() {
       const granted = defaults[key] ?? false
       await turso.execute({
         sql: "insert into role_permissions (role, permission, granted) values (?, ?, ?) on conflict (role, permission) do update set granted = excluded.granted",
-        args: [role, key, granted ? 1 : 0],
+        args: [role, key, granted],
       })
       count++
     }

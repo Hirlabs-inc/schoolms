@@ -526,6 +526,20 @@ export async function getItems<T>(key: string): Promise<T[]> {
   return rows as T[]
 }
 
+/**
+ * Like `getItems`, but returns an empty list instead of throwing when the
+ * caller lacks permission (or the table is unavailable). Use this for
+ * *secondary* data on a page (e.g. the teacher list on the Courses page) so a
+ * single denied lookup does not blank the whole page.
+ */
+export async function getItemsSafe<T>(key: string): Promise<T[]> {
+  try {
+    return await getItems<T>(key)
+  } catch {
+    return []
+  }
+}
+
 export async function addItem<T extends Record<string, any>>(key: string, item: T): Promise<T> {
   requireAuth()
   await checkKeyPermission(key, "add")

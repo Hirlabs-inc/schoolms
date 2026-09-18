@@ -19,7 +19,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
-import { getItems, updateItem, registerStudent, deleteStudent, syncStudentEnrollments } from "@/lib/api"
+import { getItems, getItemsSafe, updateItem, registerStudent, deleteStudent, syncStudentEnrollments } from "@/lib/api"
 import { usePermissions } from "@/contexts/permission-context"
 import type { Student, Course, Fee, EnrollmentProgress } from "@/lib/types"
 import { Users, BookOpen, DollarSign, CreditCard, Plus, Trash2, Pencil, Search, TrendingUp, Wallet, BarChart3, Loader2, Eye, Filter } from "lucide-react"
@@ -67,9 +67,9 @@ export default function StudentsPage() {
     try {
       const [studentsData, coursesData, feesData, enrollmentData] = await Promise.all([
         getItems<Student>("students"),
-        getItems<Course>("courses"),
-        getItems<Fee>("fees"),
-        getItems<EnrollmentProgress>("enrollmentProgress"),
+        getItemsSafe<Course>("courses"),
+        getItemsSafe<Fee>("fees"),
+        getItemsSafe<EnrollmentProgress>("enrollmentProgress"),
       ])
       setStudents(studentsData)
       setCourses(coursesData)
