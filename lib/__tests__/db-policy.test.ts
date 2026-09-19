@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest"
 import { resetDb } from "../../vitest.setup"
-import { isSqlAllowed, checkTablePermission } from "../db-policy"
+import { isSqlAllowed, checkTablePermission, checkTablePermissionWithOverrides } from "../db-policy"
 
 describe("db-policy - isSqlAllowed (profiles updates)", () => {
   it("allows a quoted-column name/email update for a non-admin role", () => {
@@ -74,5 +74,27 @@ describe("db-policy - checkTablePermission", () => {
   it("admin and manager always pass", async () => {
     expect(await checkTablePermission("ADMIN", "profiles", "delete")).toBe(true)
     expect(await checkTablePermission("MANAGER", "role_permissions", "update")).toBe(true)
+  })
+})
+
+describe("db-policy - checkTablePermissionWithOverrides (per-request)", () => {
+  it("honours an explicit deny override", () => {
+    const overrides = new Map<string, boolean>([["view_students", false]])
+    expect(checkTablePermissionWithOverrides("SECRETARY", overrides, "students", "view")).toBe(false)
+  })
+
+  it("honours an explicit grant override", () => {
+    const overrides = new Map<string, boolean>([["view_teachers", true]])
+    expect(checkTablePermissionWithOverrides("SECRETARY", overrides, "teachers", "view")).toBe(true)
+  })
+
+  it("falls back to defaults when there is no override", () => {
+    expect(checkTablePermissionWithOverrides("SECRETARY", new Map(), "courses", "view")).toBe(true)
+    expect(checkTablePermissionWithOverrides("TEACHER", new Map(), "courses", "view")).toBe(false)
+  })
+
+  it("admin always passes regardless of overrides", () => {
+    const overrides = new Map<string, boolean>([["view_students", false]])
+    expect(checkTablePermissionWithOverrides("ADMIN", overrides, "students", "view")).toBe(true)
   })
 })

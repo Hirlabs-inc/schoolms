@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { turso } from "@/lib/turso"
 import { verifyToken } from "@/lib/auth"
-import { checkTablePermission, isSqlAllowed } from "@/lib/db-policy"
+import { getRolePermissionOverrides, checkTablePermissionWithOverrides, isSqlAllowed } from "@/lib/db-policy"
 import type { UserRole } from "@/lib/types"
 
 // Server-side data proxy. The browser calls this (via lib/turso-client.ts)
@@ -31,6 +31,9 @@ export async function POST(req: NextRequest) {
   }
 
   const userRole = (user as any).role as UserRole
+  // Load this role's permission overrides once and reuse for every statement
+  // below (previously this ran one DB query per SQL statement).
+  const overrides = await getRolePermissionOverrides(userRole)
 
   // Batched execution: { queries: [{ sql, args }, ...] } runs every statement in
   // a single round trip. Each statement is validated with the same policy.
@@ -47,7 +50,7 @@ export async function POST(req: NextRequest) {
       if (!check.ok) {
         return NextResponse.json({ error: `Query rejected: ${check.reason}` }, { status: 403 })
       }
-      const batchAllowed = await checkTablePermission(userRole, check.table ?? "", check.action ?? "view")
+      const batchAllowed = checkTablePermissionWithOverrides(userRole, overrides, check.table ?? "", check.action ?? "view")
       if (!batchAllowed) {
         return NextResponse.json({ error: `Forbidden: insufficient permission for ${check.table ?? "unknown"} ${check.action ?? "view"}` }, { status: 403 })
       }
@@ -77,7 +80,7 @@ export async function POST(req: NextRequest) {
   // for this table + action combination.
   const table = check.table ?? ""
   const action = check.action ?? "view"
-  const allowed = await checkTablePermission(userRole, table, action)
+  const allowed = checkTablePermissionWithOverrides(userRole, overrides, table, action)
   if (!allowed) {
     return NextResponse.json({ error: `Forbidden: insufficient permission for ${table} ${action}` }, { status: 403 })
   }

@@ -243,3 +243,30 @@ create table if not exists role_permissions (
   granted boolean not null default true,
   primary key (role, permission)
 );
+
+-- Indexes for the columns the app filters/joins on most. Postgres does not
+-- index foreign keys automatically, so these are important for query speed as
+-- data grows. Idempotent, so re-applying the schema is safe.
+create index if not exists idx_fees_student           on fees (studentid);
+create index if not exists idx_fees_course            on fees (courseid);
+create index if not exists idx_fees_type              on fees (feetype);
+create index if not exists idx_payments_student       on payments (studentid);
+create index if not exists idx_payments_fee           on payments (feeid);
+create index if not exists idx_payments_receipt       on payments (receiptnumber);
+create index if not exists idx_enrollment_student     on enrollment_progress (studentid);
+create index if not exists idx_enrollment_course      on enrollment_progress (courseid);
+create index if not exists idx_commissions_teacher    on teacher_commissions (teacherid);
+create index if not exists idx_commissions_student    on teacher_commissions (studentid);
+create index if not exists idx_commissions_course     on teacher_commissions (courseid);
+create index if not exists idx_students_course        on students (courseid);
+create index if not exists idx_students_profile       on students (profileid);
+create index if not exists idx_attendance_student     on attendance (studentid);
+create index if not exists idx_attendance_teacher     on attendance (teacherid);
+create index if not exists idx_exam_results_student   on exam_results (studentid);
+create index if not exists idx_exam_results_exam      on exam_results (examid);
+create index if not exists idx_income_receipt         on income (receiptnumber);
+create index if not exists idx_courses_teacher        on courses (teacherid);
+create index if not exists idx_courses_class          on courses (classid);
+create index if not exists idx_payroll_teacher        on payroll_records (teacherid);
+create index if not exists idx_course_teachers_teacher on course_teachers (teacherid);
+create index if not exists idx_role_permissions_role  on role_permissions (role);

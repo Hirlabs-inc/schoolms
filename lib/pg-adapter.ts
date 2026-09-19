@@ -181,12 +181,24 @@ pg.types.setTypeParser(700, (v) => (v === null ? v : parseFloat(v))) // float4
 pg.types.setTypeParser(701, (v) => (v === null ? v : parseFloat(v))) // float8
 pg.types.setTypeParser(1700, (v) => (v === null ? v : parseFloat(v))) // numeric
 
-let pool: pg.Pool | null = null
+// A single shared pool for the whole server process. Next.js can instantiate
+// this module in several server chunks, so we stash the pool on globalThis —
+// otherwise each chunk opens its own pool and we exhaust DB connections.
+declare global {
+  // eslint-disable-next-line no-var
+  var __trainifyPgPool: pg.Pool | undefined
+}
+
 export function getPool(connectionString: string): pg.Pool {
-  if (!pool) {
-    pool = new pg.Pool({ connectionString })
+  if (!globalThis.__trainifyPgPool) {
+    globalThis.__trainifyPgPool = new pg.Pool({
+      connectionString,
+      max: 10,
+      idleTimeoutMillis: 30_000,
+      connectionTimeoutMillis: 10_000,
+    })
   }
-  return pool
+  return globalThis.__trainifyPgPool
 }
 
 function normalizeQuery(stmt: string | DbQuery): { text: string; values: any[] } {

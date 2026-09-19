@@ -49,10 +49,10 @@ export default function PayrollPage() {
 
   useEffect(() => { loadData() }, [])
 
-  const loadCommissionSummaries = async (recompute = true) => {
+  // Recompute is expensive (one pass per enrollment), so only run it when the
+  // user explicitly clicks Refresh — never on page load.
+  const loadCommissionSummaries = async (recompute = false) => {
     try {
-      // Bring stored commission rows in line with current fees/discounts/rates
-      // before reading them, so the view is always live.
       if (recompute) {
         try { await recomputeAllCommissions() } catch { /* ignore */ }
       }
@@ -470,7 +470,7 @@ export default function PayrollPage() {
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <div><CardTitle>Teacher Commission</CardTitle><CardDescription>Commission earned per teacher and per assigned course (click a teacher to expand course breakdown)</CardDescription></div>
-                  <Button variant="outline" onClick={() => loadCommissionSummaries()}><Loader2 className="h-4 w-4 mr-2" />Refresh</Button>
+                  <Button variant="outline" onClick={() => loadCommissionSummaries(true)}><Loader2 className="h-4 w-4 mr-2" />Refresh</Button>
                 </div>
               </CardHeader>
               <CardContent>

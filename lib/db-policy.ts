@@ -66,6 +66,57 @@ export const TABLE_PERMISSION_MAP: Record<string, Record<SqlAction, PermissionRe
 }
 
 /**
+ * Load all explicit role→permission overrides in a single query. Call this once
+ * per request and reuse the map for every statement (avoids a permission query
+ * per SQL statement in the /api/db batch path).
+ */
+export async function getRolePermissionOverrides(role: UserRole): Promise<Map<string, boolean>> {
+  const map = new Map<string, boolean>()
+  try {
+    const rs = await turso.execute({
+      sql: "select permission, granted from role_permissions where role = ?",
+      args: [role],
+    })
+    for (const row of rs.rows as Array<{ permission: string; granted: boolean | number }>) {
+      map.set(row.permission, Boolean(row.granted))
+    }
+  } catch {
+    // Table doesn't exist yet — defaults only.
+  }
+  return map
+}
+
+/** Synchronous permission check using a preloaded override map. */
+export function roleHasPermissionFrom(
+  role: UserRole,
+  overrides: Map<string, boolean>,
+  permission: string
+): boolean {
+  if (overrides.has(permission)) return overrides.get(permission) !== false
+  const defaults = DEFAULT_ROLE_PERMISSIONS[role]
+  return Boolean(defaults?.[permission as keyof typeof defaults] ?? false)
+}
+
+/** Synchronous table/action permission check using a preloaded override map. */
+export function checkTablePermissionWithOverrides(
+  role: UserRole,
+  overrides: Map<string, boolean>,
+  table: string,
+  action: SqlAction
+): boolean {
+  if (role === "ADMIN" || role === "MANAGER") return true
+
+  const permMap = TABLE_PERMISSION_MAP[table]
+  if (!permMap) return true
+
+  const required = permMap[action]
+  if (!required) return true
+  const requiredPerms = Array.isArray(required) ? required : [required]
+
+  return requiredPerms.some((perm) => roleHasPermissionFrom(role, overrides, perm))
+}
+
+/**
  * Resolve whether a role has a single permission, merging DB overrides on top
  * of the hardcoded defaults. A `granted = false` row explicitly denies.
  */
