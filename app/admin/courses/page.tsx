@@ -379,7 +379,7 @@ export default function CoursesPage() {
             </Dialog>
 
             <Dialog open={isViewDialogOpen} onOpenChange={setIsViewDialogOpen}>
-              <DialogContent className="max-w-2xl">
+              <DialogContent className="w-[95vw] max-w-2xl">
                 <DialogHeader>
                   <DialogTitle>{viewingCourse?.name}</DialogTitle>
                   <DialogDescription>
@@ -395,7 +395,7 @@ export default function CoursesPage() {
                 {viewingCourse && (() => {
                   const enrolled = enrolledStudentsForCourse(viewingCourse.id)
                   return (
-                    <div className="space-y-3">
+                    <div className="min-w-0 space-y-3">
                       <div className="flex items-center gap-2 text-sm text-muted-foreground">
                         <Users className="h-4 w-4" />
                         {enrolled.length} enrolled student(s)
@@ -403,15 +403,15 @@ export default function CoursesPage() {
                       {enrolled.length === 0 ? (
                         <p className="text-sm text-muted-foreground">No students enrolled yet.</p>
                       ) : (
-                        <div className="max-h-80 overflow-y-auto rounded-md border">
-                          <Table>
+                        <div className="max-h-80 w-full min-w-0 overflow-auto rounded-md border">
+                          <Table className="min-w-[640px]">
                             <TableHeader>
                               <TableRow>
-                                <TableHead>Admission No.</TableHead>
-                                <TableHead>Student</TableHead>
-                                <TableHead>Phone</TableHead>
-                                <TableHead>Progress</TableHead>
-                                <TableHead>Status</TableHead>
+                                <TableHead className="whitespace-nowrap">Admission No.</TableHead>
+                                <TableHead className="whitespace-nowrap">Student</TableHead>
+                                <TableHead className="whitespace-nowrap">Phone</TableHead>
+                                <TableHead className="whitespace-nowrap">Progress</TableHead>
+                                <TableHead className="whitespace-nowrap">Status</TableHead>
                               </TableRow>
                             </TableHeader>
                             <TableBody>
@@ -419,18 +419,18 @@ export default function CoursesPage() {
                                 const enr = enrollments.find((e) => e.studentId === s.id && e.courseId === viewingCourse.id)
                                 return (
                                   <TableRow key={s.id}>
-                                    <TableCell className="font-mono text-xs">{s.studentNumber || "—"}</TableCell>
-                                    <TableCell className="font-medium">{s.firstName} {s.lastName}</TableCell>
-                                    <TableCell>{s.phone || s.parentPhone || "-"}</TableCell>
-                                    <TableCell>
+                                    <TableCell className="font-mono text-xs whitespace-nowrap">{s.studentNumber || "—"}</TableCell>
+                                    <TableCell className="font-medium whitespace-nowrap">{s.firstName} {s.lastName}</TableCell>
+                                    <TableCell className="whitespace-nowrap">{s.phone || s.parentPhone || "-"}</TableCell>
+                                    <TableCell className="whitespace-nowrap">
                                       {enr ? (
                                         <div className="flex items-center gap-2">
-                                          <Progress value={enr.progressPercent} className="h-2 w-16" />
-                                          <span className="text-xs">{enr.progressPercent}%</span>
+                                          <Progress value={enr.progressPercent} className="h-2 w-16 shrink-0" />
+                                          <span className="text-xs tabular-nums">{enr.progressPercent}%</span>
                                         </div>
                                       ) : <span className="text-muted-foreground">—</span>}
                                     </TableCell>
-                                    <TableCell>
+                                    <TableCell className="whitespace-nowrap">
                                       {enr ? (
                                         <Badge variant={enr.status === "COMPLETED" ? "default" : enr.status === "DROPPED" ? "destructive" : "secondary"}>
                                           {enr.status.replace("_", " ")}
