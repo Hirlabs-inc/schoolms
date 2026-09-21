@@ -66,6 +66,7 @@ export default function FeesPage() {
   const [receiptPayment, setReceiptPayment] = useState<Payment | null>(null)
 
   const [searchTerm, setSearchTerm] = useState("")
+  const [paymentSearch, setPaymentSearch] = useState("")
 
   // Student fee summary
   const [summaryStudentId, setSummaryStudentId] = useState("")
@@ -456,8 +457,19 @@ export default function FeesPage() {
     )
   })
 
+  const filteredPayments = payments.filter((p) => {
+    const term = paymentSearch.toLowerCase().trim()
+    if (!term) return true
+    return (
+      getStudentName(p.studentId).toLowerCase().includes(term) ||
+      (p.receiptNumber || "").toLowerCase().includes(term) ||
+      (p.paymentMethod || "").toLowerCase().replace("_", " ").includes(term) ||
+      (p.paymentDate || "").includes(term)
+    )
+  })
+
   const feesPag = usePagination(filteredFees, 10)
-  const paymentsPag = usePagination(payments, 10)
+  const paymentsPag = usePagination(filteredPayments, 10)
 
   if (isLoading) {
     return (
@@ -657,6 +669,10 @@ export default function FeesPage() {
                 <CardDescription>All recorded payments (click Edit to modify, Delete to remove)</CardDescription>
               </CardHeader>
               <CardContent>
+                <div className="relative mb-4">
+                  <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                  <Input placeholder="Search by student, receipt #, method or date..." className="pl-8" value={paymentSearch} onChange={(e) => setPaymentSearch(e.target.value)} />
+                </div>
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -669,8 +685,8 @@ export default function FeesPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {payments.length === 0 ? (
-                      <TableRow><TableCell colSpan={6} className="text-center h-24 text-muted-foreground">No payments recorded yet</TableCell></TableRow>
+                    {paymentsPag.total === 0 ? (
+                      <TableRow><TableCell colSpan={6} className="text-center h-24 text-muted-foreground">No payments found</TableCell></TableRow>
                     ) : (
                       paymentsPag.pageItems.map((p) => (
                         <TableRow key={p.id}>
