@@ -442,7 +442,21 @@ export default function FeesPage() {
     return statusBadge(fee.status)
   }
 
-  const feesPag = usePagination(fees, 10)
+  const chargeLabelFor = (fee: Fee) =>
+    fee.feeType === "COURSE"
+      ? (fee.courseName || getCourseName(fee.courseId || ""))
+      : (fee.description || fee.feeType || "—")
+
+  const filteredFees = fees.filter((fee) => {
+    const term = searchTerm.toLowerCase().trim()
+    if (!term) return true
+    return (
+      getStudentName(fee.studentId).toLowerCase().includes(term) ||
+      chargeLabelFor(fee).toLowerCase().includes(term)
+    )
+  })
+
+  const feesPag = usePagination(filteredFees, 10)
   const paymentsPag = usePagination(payments, 10)
 
   if (isLoading) {
@@ -587,15 +601,15 @@ export default function FeesPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {fees.length === 0 ? (
-                      <TableRow><TableCell colSpan={9} className="text-center h-24 text-muted-foreground">No fees assigned yet</TableCell></TableRow>
+                    {feesPag.total === 0 ? (
+                      <TableRow><TableCell colSpan={9} className="text-center h-24 text-muted-foreground">No fees found</TableCell></TableRow>
                     ) : (
                       feesPag.pageItems.map((fee) => {
                         const paid = Number(fee.totalFee) - Number(fee.balance)
                         return (
                           <TableRow key={fee.id} className={feeRowClasses(fee)}>
                             <TableCell className="font-medium">{getStudentName(fee.studentId)}</TableCell>
-                            <TableCell>{fee.feeType === "COURSE" ? (fee.courseName || getCourseName(fee.courseId || "")) : (fee.description || fee.feeType || "—")}</TableCell>
+                            <TableCell>{chargeLabelFor(fee)}</TableCell>
                             <TableCell>{currency} {Number(fee.grossAmount ?? fee.totalFee).toLocaleString()}</TableCell>
                             <TableCell className="text-purple-600">
                               {Number(fee.discountAmount) > 0 ? (
