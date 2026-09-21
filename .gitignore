@@ -9,3 +9,6 @@ out
 .DS_Store
 *.tsbuildinfo
 qc
+
+# Local PM2 process config — kept out of the repo
+ecosystem.config.cjs
