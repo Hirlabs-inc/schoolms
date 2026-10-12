@@ -19,7 +19,9 @@ export async function login(email: string, password: string) {
     throw new Error(msg)
   }
   const data = await res.json()
-  setStoredToken(data.token)
+  // The JWT lives in an httpOnly cookie (set by the server). We only keep a
+  // non-secret marker so the UI knows there is a session to try.
+  setStoredToken("session")
   if (data.user) {
     try { localStorage.setItem("currentUser", JSON.stringify(data.user)) } catch {}
   }
@@ -27,6 +29,11 @@ export async function login(email: string, password: string) {
 }
 
 export async function logout() {
+  try {
+    await fetch("/api/auth/logout", { method: "POST" })
+  } catch {
+    // ignore network errors on logout
+  }
   clearStoredToken()
 }
 
@@ -685,9 +692,32 @@ export async function deleteStudent(id: string): Promise<void> {
 }
 
 export async function resetPassword(email: string) {
-  const rs = await turso.execute({ sql: "select id from profiles where email = ?", args: [email] })
-  if (rs.rows.length === 0) throw new Error("No account found with that email")
+  // Server route generates a single-use token and delivers it; the response is
+  // always success to avoid account enumeration.
+  const res = await fetch("/api/auth/reset", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email }),
+  })
+  if (!res.ok) {
+    let msg = "Failed to request a reset link"
+    try { const j = await res.json(); if (j?.error) msg = j.error } catch {}
+    throw new Error(msg)
+  }
+  // Always success (no account enumeration). Return true for callers/tests.
+  await res.json().catch(() => ({}))
   return true
+}
+
+export async function confirmPasswordReset(token: string, newPassword: string) {
+  const res = await fetch("/api/auth/reset/confirm", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token, newPassword }),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error((data as any)?.error || "Failed to reset password")
+  return data
 }
 
 // --- Specific Logic ---

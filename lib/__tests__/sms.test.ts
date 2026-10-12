@@ -8,13 +8,13 @@ describe("SMS Integration", () => {
   beforeEach(() => {
     resetDb()
     origFetch = globalThis.fetch
-    origKey = process.env.NEXT_PUBLIC_TEXTBEE_API_KEY
+    origKey = process.env.TEXTBEE_API_KEY
   })
 
   afterEach(() => {
     globalThis.fetch = origFetch
     if (origKey !== undefined) {
-      process.env.NEXT_PUBLIC_TEXTBEE_API_KEY = origKey
+      process.env.TEXTBEE_API_KEY = origKey
     }
   })
 
@@ -24,7 +24,7 @@ describe("SMS Integration", () => {
   })
 
   it("sendSMS returns false when device fetch fails", async () => {
-    process.env.NEXT_PUBLIC_TEXTBEE_API_KEY = "test-key"
+    process.env.TEXTBEE_API_KEY = "test-key"
 
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: false,
@@ -39,7 +39,7 @@ describe("SMS Integration", () => {
   })
 
   it("sendSMS returns false when no device found", async () => {
-    process.env.NEXT_PUBLIC_TEXTBEE_API_KEY = "test-key"
+    process.env.TEXTBEE_API_KEY = "test-key"
 
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
@@ -53,7 +53,7 @@ describe("SMS Integration", () => {
   })
 
   it("sendSMS returns true on successful send", async () => {
-    process.env.NEXT_PUBLIC_TEXTBEE_API_KEY = "test-key"
+    process.env.TEXTBEE_API_KEY = "test-key"
 
     globalThis.fetch = vi.fn()
       .mockResolvedValueOnce({
@@ -72,7 +72,7 @@ describe("SMS Integration", () => {
   })
 
   it("sendSMS sends correct recipients and message", async () => {
-    process.env.NEXT_PUBLIC_TEXTBEE_API_KEY = "test-key"
+    process.env.TEXTBEE_API_KEY = "test-key"
 
     let capturedBody: any = null
     globalThis.fetch = vi.fn()
@@ -94,7 +94,7 @@ describe("SMS Integration", () => {
   })
 
   it("sendSMS formats fee reminder message correctly", async () => {
-    process.env.NEXT_PUBLIC_TEXTBEE_API_KEY = "test-key"
+    process.env.TEXTBEE_API_KEY = "test-key"
 
     let capturedBody: any = null
     globalThis.fetch = vi.fn()
@@ -116,7 +116,7 @@ describe("SMS Integration", () => {
   })
 
   it("sendSMS handles network error gracefully", async () => {
-    process.env.NEXT_PUBLIC_TEXTBEE_API_KEY = "test-key"
+    process.env.TEXTBEE_API_KEY = "test-key"
 
     globalThis.fetch = vi.fn().mockRejectedValue(new Error("Network error")) as any
 
@@ -127,7 +127,7 @@ describe("SMS Integration", () => {
   })
 
   it("sendSMS sends API key in headers", async () => {
-    process.env.NEXT_PUBLIC_TEXTBEE_API_KEY = "my-secret-key"
+    process.env.TEXTBEE_API_KEY = "my-secret-key"
 
     let capturedHeaders: any = null
     globalThis.fetch = vi.fn()
@@ -144,7 +144,7 @@ describe("SMS Integration", () => {
   })
 
   it("sendSMS returns false when send endpoint fails", async () => {
-    process.env.NEXT_PUBLIC_TEXTBEE_API_KEY = "test-key"
+    process.env.TEXTBEE_API_KEY = "test-key"
 
     globalThis.fetch = vi.fn()
       .mockResolvedValueOnce({

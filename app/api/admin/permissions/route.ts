@@ -3,18 +3,18 @@
  * POST /api/admin/permissions   — bulk upsert (replaces specific grants)
  */
 import { NextRequest, NextResponse } from "next/server"
-import { verifyToken } from "@/lib/auth"
+import { getSessionUser, isSameOrigin } from "@/lib/auth"
 import { ALL_PERMISSIONS, getAllRolePermissions, setRolePermission, hasPermission } from "@/lib/permissions"
 import type { Permission } from "@/lib/permissions"
 import type { UserRole } from "@/lib/types"
+import { logAudit } from "@/lib/audit"
 
 function isAllowedRole(v: string): v is UserRole {
   return ["ADMIN", "MANAGER", "SECRETARY", "TEACHER", "STUDENT"].includes(v)
 }
 
 async function getActor(req: NextRequest) {
-  const token = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "") || null
-  return token ? await verifyToken(token) : null
+  return getSessionUser(req)
 }
 
 export async function GET(req: NextRequest) {
@@ -28,6 +28,9 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  if (!isSameOrigin(req)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+  }
   const actor = await getActor(req)
   if (!actor || (actor.role !== "ADMIN" && !(await hasPermission(actor.role, "manage_permissions")))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
@@ -63,6 +66,10 @@ export async function POST(req: NextRequest) {
     }
     await setRolePermission(u.role as UserRole, u.permission as Permission, Boolean(u.granted))
   }
+
+  await logAudit(actor, "permissions.update", {
+    details: { roles: Array.from(new Set(updates.map((u) => u.role))), count: updates.length },
+  })
 
   return NextResponse.json({ success: true })
 }

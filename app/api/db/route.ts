@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { turso } from "@/lib/turso"
-import { verifyToken } from "@/lib/auth"
+import { getSessionUser, isSameOrigin } from "@/lib/auth"
 import { getRolePermissionOverrides, checkTablePermissionWithOverrides, isSqlAllowed } from "@/lib/db-policy"
 import type { UserRole } from "@/lib/types"
 
@@ -18,15 +18,18 @@ import type { UserRole } from "@/lib/types"
 // Non-admin roles that may edit student/teacher profiles (add_students /
 // add_teachers) must not be able to touch an ADMIN or MANAGER row — otherwise
 // they could reset an administrator's password and take over the account.
-async function profileUpdateTargetsPrivilegedAccount(
-  userRole: UserRole,
+async function profileUpdateBlocked(
+  user: { id: string; role: UserRole },
   sql: string,
   args: any[]
 ): Promise<boolean> {
-  if (userRole === "ADMIN" || userRole === "MANAGER") return false
-  const check = isSqlAllowed(sql, userRole)
+  if (user.role === "ADMIN" || user.role === "MANAGER") return false
+  const check = isSqlAllowed(sql, user.role)
   if (check.table !== "profiles" || check.action !== "update") return false
   const targetId = args.length ? args[args.length - 1] : undefined
+  // Non-admins may only change their OWN password (or none at all).
+  const setsPassword = /\bset\b[\s\S]*\bpassword\b/.test(sql.toLowerCase())
+  if (setsPassword && targetId !== user.id) return true
   if (typeof targetId !== "string" || !targetId) return false
   const tr = await turso.execute({ sql: "select role from profiles where id = ?", args: [targetId] })
   const role = (tr.rows[0] as any)?.role as string | undefined
@@ -34,9 +37,10 @@ async function profileUpdateTargetsPrivilegedAccount(
 }
 
 export async function POST(req: NextRequest) {
-  const auth = req.headers.get("authorization")
-  const token = auth?.startsWith("Bearer ") ? auth.slice(7) : null
-  const user = token ? await verifyToken(token) : null
+  if (!isSameOrigin(req)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+  }
+  const user = await getSessionUser(req)
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
@@ -73,7 +77,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: `Forbidden: insufficient permission for ${check.table ?? "unknown"} ${check.action ?? "view"}` }, { status: 403 })
       }
       const args = Array.isArray(q.args) ? q.args : []
-      if (await profileUpdateTargetsPrivilegedAccount(userRole, q.sql, args)) {
+      if (await profileUpdateBlocked(user, q.sql, args)) {
         return NextResponse.json({ error: "Forbidden: cannot modify an administrator's profile" }, { status: 403 })
       }
       try {
@@ -105,7 +109,7 @@ export async function POST(req: NextRequest) {
   if (!allowed) {
     return NextResponse.json({ error: `Forbidden: insufficient permission for ${table} ${action}` }, { status: 403 })
   }
-  if (await profileUpdateTargetsPrivilegedAccount(userRole, sql, args)) {
+  if (await profileUpdateBlocked(user, sql, args)) {
     return NextResponse.json({ error: "Forbidden: cannot modify an administrator's profile" }, { status: 403 })
   }
 

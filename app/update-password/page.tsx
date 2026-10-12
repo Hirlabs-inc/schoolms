@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { updatePassword, getCurrentUser } from "@/lib/api"
+import { updatePassword, getCurrentUser, confirmPasswordReset } from "@/lib/api"
 import { GraduationCap, Loader2, CheckCircle, AlertCircle } from "lucide-react"
 import Link from "next/link"
 
@@ -19,25 +19,29 @@ export default function UpdatePasswordPage() {
     const [success, setSuccess] = useState(false)
     const [error, setError] = useState("")
     const [verifying, setVerifying] = useState(true)
+    const [token, setToken] = useState<string | null>(null)
 
     useEffect(() => {
-        // Check if we have a session (Supabase handles the token from URL automatically)
         const checkSession = async () => {
             try {
+                const t = new URLSearchParams(window.location.search).get("token")
+                if (t) {
+                    // Reset-link mode: the token authorizes the change.
+                    setToken(t)
+                    return
+                }
+                // No token: allow a logged-in user to change their password.
                 const user = await getCurrentUser()
                 if (!user) {
-                    // If no user, the link might be invalid or expired
                     setError("Invalid or expired reset link. Please try requesting a new one.")
                 }
-            } catch (err) {
-                setError("Failed to verify session.")
+            } catch {
+                setError("Failed to verify reset link.")
             } finally {
                 setVerifying(false)
             }
         }
-
-        // Give Supabase a moment to process the hash fragment
-        setTimeout(checkSession, 1000)
+        checkSession()
     }, [])
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -49,17 +53,20 @@ export default function UpdatePasswordPage() {
             return
         }
 
-        if (password.length < 6) {
-            setError("Password must be at least 6 characters long")
+        if (password.length < 10) {
+            setError("Password must be at least 10 characters long")
             return
         }
 
         setLoading(true)
 
         try {
-            await updatePassword(password)
+            if (token) {
+                await confirmPasswordReset(token, password)
+            } else {
+                await updatePassword(password)
+            }
             setSuccess(true)
-            // Redirect after a delay
             setTimeout(() => {
                 router.push("/login")
             }, 3000)

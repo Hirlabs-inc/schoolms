@@ -397,6 +397,19 @@ globalThis.fetch = vi.fn(async (input: any, init?: any) => {
     return { ok: true, status: 200, json: async () => ({ user }) } as any
   }
 
+  if (url.includes("/api/auth/logout") && method === "POST") {
+    return { ok: true, status: 200, json: async () => ({ success: true }) } as any
+  }
+
+  if (url.includes("/api/auth/reset/confirm") && method === "POST") {
+    return { ok: true, status: 200, json: async () => ({ success: true }) } as any
+  }
+
+  if (url.includes("/api/auth/reset") && method === "POST") {
+    // Always succeeds (no account enumeration).
+    return { ok: true, status: 200, json: async () => ({ success: true, message: "If an account exists..." }) } as any
+  }
+
   if (url.includes("/api/admin/permissions/")) {
     const role = url.split("/").filter(Boolean).pop() as string
     const { DEFAULT_ROLE_PERMISSIONS, ALL_PERMISSIONS } = await import("./lib/permissions")

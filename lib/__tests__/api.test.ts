@@ -41,7 +41,8 @@ describe("Auth", () => {
     const user = await login("a@b.com", "pass")
     expect(user.email).toBe("a@b.com")
     expect(user.role).toBe("ADMIN")
-    expect(localStorage.getItem("auth_token")).toBe("mock-jwt-token")
+    // The JWT lives in an httpOnly cookie; the client keeps a non-secret marker.
+    expect(localStorage.getItem("auth_token")).toBe("session")
   })
 
   it("login fails with wrong password", async () => {
@@ -91,8 +92,9 @@ describe("Auth", () => {
     expect(ok).toBe(true)
   })
 
-  it("resetPassword throws for unknown email", async () => {
-    await expect(resetPassword("no@no.com")).rejects.toThrow("No account found")
+  it("resetPassword does not reveal whether an email exists", async () => {
+    // No account enumeration: unknown emails resolve the same way.
+    await expect(resetPassword("no@no.com")).resolves.toBe(true)
   })
 })
 

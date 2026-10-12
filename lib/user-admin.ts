@@ -1,7 +1,8 @@
 import "server-only"
 import { turso } from "./turso"
-import { hashPassword } from "./auth"
+import { hashPassword, MIN_PASSWORD_LENGTH } from "./auth"
 import type { SessionUser } from "./auth"
+import { logAudit } from "./audit"
 
 // Server-side logic for managing STAFF user accounts (ADMIN / MANAGER /
 // SECRETARY / TEACHER). Student roster accounts are intentionally NOT managed
@@ -163,7 +164,7 @@ export async function createStaffUser(actor: SessionUser | null | undefined, inp
   assertValidEmail(email)
 
   const password = typeof input.password === "string" ? input.password : ""
-  if (password.length < 6) throw err(400, "Password must be at least 6 characters")
+  if (password.length < MIN_PASSWORD_LENGTH) throw err(400, `Password must be at least ${MIN_PASSWORD_LENGTH} characters`)
 
   const dup = await turso.execute({ sql: "select id from profiles where email = ?", args: [email] })
   if (dup.rows.length > 0) throw err(409, "A user with that email already exists")
@@ -179,6 +180,7 @@ export async function createStaffUser(actor: SessionUser | null | undefined, inp
     await ensureTeacherRow(userId, input)
   }
 
+  await logAudit(actor, "user.create", { targetType: "user", targetId: userId, details: { role, email } })
   return { success: true, userId }
 }
 
@@ -227,8 +229,8 @@ export async function updateStaffUser(actor: SessionUser | null | undefined, id:
   // Optional password reset.
   let passwordHash: string | undefined
   if (patch?.password) {
-    if (typeof patch.password !== "string" || patch.password.length < 6) {
-      throw err(400, "Password must be at least 6 characters")
+    if (typeof patch.password !== "string" || patch.password.length < MIN_PASSWORD_LENGTH) {
+      throw err(400, `Password must be at least ${MIN_PASSWORD_LENGTH} characters`)
     }
     passwordHash = await hashPassword(patch.password)
   }
@@ -257,6 +259,11 @@ export async function updateStaffUser(actor: SessionUser | null | undefined, id:
     await removeTeacherIdentity(id)
   }
 
+  await logAudit(actor, "user.update", {
+    targetType: "user",
+    targetId: id,
+    details: { fromRole: currentRole, toRole: newRole, email, passwordChanged: !!passwordHash },
+  })
   return { success: true }
 }
 
@@ -295,5 +302,6 @@ export async function deleteStaffUser(actor: SessionUser | null | undefined, id:
     await turso.execute({ sql: "delete from profiles where id = ?", args: [id] })
   }
 
+  await logAudit(actor, "user.delete", { targetType: "user", targetId: id, details: { role: profile.role } })
   return { success: true }
 }

@@ -13,8 +13,10 @@ TURSO_URL=libsql://your-instance.turso.io
 TURSO_TOKEN=your-turso-auth-token
 
 JWT_SECRET=<a long random string, e.g. openssl rand -base64 48>
-# optional:
-NEXT_PUBLIC_TEXTBEE_API_KEY=your-textbee-key
+# optional (server-only, never NEXT_PUBLIC_):
+TEXTBEE_API_KEY=your-textbee-key
+# optional: HTTP webhook that receives { email, resetUrl } for password resets
+PASSWORD_RESET_WEBHOOK=https://hooks.example.com/reset
 ```
 
 > ⚠️ `JWT_SECRET` is **mandatory in production**. The app refuses to start if it is missing

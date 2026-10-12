@@ -1,6 +1,7 @@
 import "server-only"
 import { SignJWT, jwtVerify, decodeJwt } from "jose"
 import bcrypt from "bcryptjs"
+import type { NextRequest } from "next/server"
 
 const DEV_FALLBACK = "trainify-dev-insecure-secret-do-not-use-in-production"
 
@@ -25,6 +26,57 @@ export interface SessionUser {
   role: "ADMIN" | "TEACHER" | "STUDENT" | "SECRETARY" | "MANAGER"
   firstName: string
   lastName: string
+}
+
+/** Minimum accepted password length (server-side policy). */
+export const MIN_PASSWORD_LENGTH = 10
+
+/** Session cookie name. The JWT is delivered httpOnly so XSS cannot read it. */
+export const SESSION_COOKIE = "trainify_session"
+
+/** Options for the session cookie (7 days, httpOnly, SameSite=Lax). */
+export function sessionCookieOptions() {
+  return {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax" as const,
+    path: "/",
+    maxAge: 7 * 24 * 60 * 60,
+  }
+}
+
+/**
+ * Resolve the session user from the request — accepts the httpOnly session
+ * cookie (preferred) or a Bearer token (for API clients / tests).
+ */
+export async function getSessionUser(req: NextRequest): Promise<SessionUser | null> {
+  const auth = req.headers.get("authorization")
+  const bearer = auth?.startsWith("Bearer ") ? auth.slice(7).trim() : null
+  if (bearer) {
+    const u = await verifyToken(bearer)
+    if (u) return u
+  }
+  const cookie = req.cookies.get(SESSION_COOKIE)?.value
+  if (cookie) return verifyToken(cookie)
+  return null
+}
+
+/**
+ * CSRF guard for state-changing requests. Cookies are SameSite=Lax (so browsers
+ * won't attach them to cross-site POSTs); this additionally rejects requests
+ * whose Origin doesn't match the app host.
+ */
+export function isSameOrigin(req: NextRequest): boolean {
+  const method = req.method.toUpperCase()
+  if (method === "GET" || method === "HEAD" || method === "OPTIONS") return true
+  const origin = req.headers.get("origin")
+  if (!origin) return true // non-browser client (no Origin header)
+  const host = req.headers.get("host")
+  try {
+    return new URL(origin).host === host
+  } catch {
+    return false
+  }
 }
 
 export async function hashPassword(password: string): Promise<string> {

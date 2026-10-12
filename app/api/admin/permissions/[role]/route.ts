@@ -4,11 +4,12 @@
  * DELETE /api/admin/permissions/[role]  — reset a role to defaults
  */
 import { NextRequest, NextResponse } from "next/server"
-import { verifyToken, type SessionUser } from "@/lib/auth"
+import { getSessionUser, isSameOrigin, type SessionUser } from "@/lib/auth"
 import { ALL_PERMISSIONS, DEFAULT_ROLE_PERMISSIONS, setRolePermission, resetRolePermissions, hasPermission } from "@/lib/permissions"
 import type { Permission } from "@/lib/permissions"
 import type { UserRole } from "@/lib/types"
 import { turso } from "@/lib/turso"
+import { logAudit } from "@/lib/audit"
 
 function isAllowedRole(v: string): v is UserRole {
   return ["ADMIN", "MANAGER", "SECRETARY", "TEACHER", "STUDENT"].includes(v)
@@ -17,8 +18,7 @@ function isAllowedRole(v: string): v is UserRole {
 // GET allows any authenticated user to fetch their own role's permissions.
 // Users with manage_permissions or ADMIN can read all roles.
 async function getActor(req: NextRequest) {
-  const token = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "") || null
-  return token ? await verifyToken(token) : null
+  return getSessionUser(req)
 }
 
 async function canReadPermissions(actor: SessionUser | null, role: string): Promise<boolean> {
@@ -65,6 +65,9 @@ export async function GET(req: NextRequest, { params }: Ctx) {
 }
 
 export async function PATCH(req: NextRequest, { params }: Ctx) {
+  if (!isSameOrigin(req)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+  }
   const actor = await getActor(req)
   if (!actor || (actor.role !== "ADMIN" && !(await hasPermission(actor.role as UserRole, "manage_permissions")))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
@@ -99,6 +102,11 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
   }
 
   await setRolePermission(role as UserRole, body.permission as Permission, body.granted)
+  await logAudit(actor, "permission.set", {
+    targetType: "role",
+    targetId: role,
+    details: { permission: body.permission, granted: body.granted },
+  })
   return NextResponse.json({
     success: true,
     role,
@@ -108,6 +116,9 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
 }
 
 export async function DELETE(req: NextRequest, { params }: Ctx) {
+  if (!isSameOrigin(req)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+  }
   const actor = await getActor(req)
   if (!actor || (actor.role !== "ADMIN" && !(await hasPermission(actor.role as UserRole, "manage_permissions")))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
@@ -122,6 +133,7 @@ export async function DELETE(req: NextRequest, { params }: Ctx) {
   }
 
   await resetRolePermissions(role as UserRole)
+  await logAudit(actor, "permissions.reset", { targetType: "role", targetId: role })
   return NextResponse.json({
     success: true,
     role,

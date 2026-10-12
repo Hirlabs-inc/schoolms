@@ -261,5 +261,12 @@ export function isSqlAllowed(
     }
   }
 
+  // Never let a non-manager read credential columns or dump the whole table.
+  if (table === "profiles" && firstWord === "select" && !isAdmin) {
+    if (/select\s+\*/.test(sql) || /\bpassword\b|\bresettoken\b|\bresettokenexpiry\b/.test(sql)) {
+      return { ok: false, reason: "Password/reset columns are not readable via the data proxy" }
+    }
+  }
+
   return { ok: true, table, action }
 }

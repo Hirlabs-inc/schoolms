@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from "next/server"
-import { verifyToken } from "@/lib/auth"
+import { getSessionUser, isSameOrigin } from "@/lib/auth"
 import { createStaffUser, HttpError } from "@/lib/user-admin"
 import { hasPermission } from "@/lib/permissions"
 
 export async function POST(req: NextRequest) {
-  const token = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "") || null
-  const actor = token ? await verifyToken(token) : null
+  if (!isSameOrigin(req)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+  }
+  const actor = await getSessionUser(req)
   if (!actor || (actor.role !== "ADMIN" && !(await hasPermission(actor.role, "manage_users")) && !(await hasPermission(actor.role, "add_students")))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }

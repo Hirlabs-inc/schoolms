@@ -53,10 +53,10 @@ describe("Auth - Login Edge Cases", () => {
     await expect(login("admin@school.com", undefined as any)).rejects.toThrow()
   })
 
-  it("login sets token in localStorage on success", async () => {
+  it("login sets a session marker on success", async () => {
     await seedAdmin()
     await login("admin@school.com", "password123")
-    expect(localStorage.getItem("auth_token")).toBe("mock-jwt-token")
+    expect(localStorage.getItem("auth_token")).toBe("session")
   })
 
   it("login returns user object with correct fields", async () => {
@@ -163,8 +163,8 @@ describe("Auth - resetPassword", () => {
     expect(ok).toBe(true)
   })
 
-  it("throws for non-existent email", async () => {
-    await expect(resetPassword("nobody@nowhere.com")).rejects.toThrow("No account found")
+  it("does not reveal whether an email exists", async () => {
+    await expect(resetPassword("nobody@nowhere.com")).resolves.toBe(true)
   })
 
   it("works for multiple users with different emails", async () => {

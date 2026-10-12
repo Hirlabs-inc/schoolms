@@ -270,3 +270,17 @@ create index if not exists idx_courses_class          on courses (classid);
 create index if not exists idx_payroll_teacher        on payroll_records (teacherid);
 create index if not exists idx_course_teachers_teacher on course_teachers (teacherid);
 create index if not exists idx_role_permissions_role  on role_permissions (role);
+
+-- Append-only audit trail for security-relevant actions (logins, user/role/
+-- permission changes, password resets). Written best-effort by lib/audit.ts.
+create table if not exists audit_log (
+  id text primary key,
+  actorid text,
+  actorrole text,
+  action text,
+  targettype text,
+  targetid text,
+  details text,
+  createdat text default (now()::text)
+);
+create index if not exists idx_audit_created on audit_log (createdat);

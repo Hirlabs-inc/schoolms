@@ -47,7 +47,7 @@ npm run dev                  # http://localhost:3000 (or :3001 if 3000 is busy)
 | `TURSO_URL` | libSQL/Turso database URL (e.g. `libsql://xxx.turso.io` or `file:./dev.db`) |
 | `TURSO_TOKEN` | Turso auth token |
 | `JWT_SECRET` | Long random string used to sign auth tokens. **Required in production.** |
-| `NEXT_PUBLIC_TEXTBEE_API_KEY` | (Optional) SMS provider key for notifications |
+| `TEXTBEE_API_KEY` | (Optional, server-only) SMS provider key for notifications |
 
 ## Build & Run (production)
 

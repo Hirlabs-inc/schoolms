@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { turso } from "@/lib/turso"
-import { verifyToken, verifyPassword, hashPassword } from "@/lib/auth"
+import { verifyPassword, hashPassword, MIN_PASSWORD_LENGTH, getSessionUser, isSameOrigin } from "@/lib/auth"
+import { logAudit } from "@/lib/audit"
 
 function clean(v: unknown): string | null {
   if (typeof v !== "string") return null
@@ -12,13 +13,9 @@ function isEmail(v: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)
 }
 
-// GET /api/auth/me  (Authorization: Bearer <token>)
+// GET /api/auth/me  (session cookie or Authorization: Bearer <token>)
 export async function GET(req: NextRequest) {
-  const auth = req.headers.get("authorization")
-  const token = auth?.startsWith("Bearer ") ? auth.slice(7) : null
-  if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-
-  const user = await verifyToken(token)
+  const user = await getSessionUser(req)
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
   const rs = await turso.execute({
@@ -43,11 +40,10 @@ export async function GET(req: NextRequest) {
 // Self-service: a logged-in user updates their OWN profile. Changing the email
 // or password requires the current password.
 export async function PATCH(req: NextRequest) {
-  const auth = req.headers.get("authorization")
-  const token = auth?.startsWith("Bearer ") ? auth.slice(7) : null
-  if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-
-  const actor = await verifyToken(token)
+  if (!isSameOrigin(req)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+  }
+  const actor = await getSessionUser(req)
   if (!actor) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
   let body: Record<string, unknown>
@@ -95,8 +91,8 @@ export async function PATCH(req: NextRequest) {
     }
   }
 
-  if (newPassword && newPassword.length < 6) {
-    return NextResponse.json({ error: "Password must be at least 6 characters" }, { status: 400 })
+  if (newPassword && newPassword.length < MIN_PASSWORD_LENGTH) {
+    return NextResponse.json({ error: `Password must be at least ${MIN_PASSWORD_LENGTH} characters` }, { status: 400 })
   }
 
   // Changing credentials requires the current password.
@@ -124,6 +120,15 @@ export async function PATCH(req: NextRequest) {
       args: [...cols.map((c) => updates[c]), actor.id],
     })
   }
+
+  await logAudit(actor, "profile.update", {
+    targetType: "profile",
+    targetId: actor.id,
+    details: {
+      emailChanged: wantsEmail && email !== row.email,
+      passwordChanged: wantsPassword,
+    },
+  })
 
   return NextResponse.json({
     success: true,

@@ -47,39 +47,51 @@ Added via `next.config.mjs`: `X-Content-Type-Options: nosniff`,
 popup via `document.write` without escaping → script injection that can read the
 JWT from `localStorage`. Values are now HTML-escaped (`escapeHtml`).
 
-## Remaining work / recommendations
+## Recommendations — implemented
 
-Ordered by risk.
+1. **Password reset is now complete and secure.** `POST /api/auth/reset` stores
+   only a SHA-256 hash of a single-use token (1h expiry) and never returns it in
+   production; the link is delivered via `PASSWORD_RESET_WEBHOOK`. New
+   `POST /api/auth/reset/confirm` verifies the token + expiry, sets the password
+   and clears the token. The `/update-password` page consumes `?token=`.
+2. **JWT moved out of `localStorage`.** `/api/auth/login` sets an httpOnly,
+   Secure (prod), SameSite=Lax cookie (`trainify_session`); `/api/auth/logout`
+   clears it. The client keeps only a non-secret marker. Server routes resolve
+   the session from the cookie (or a Bearer token for API clients).
+3. **SMS key is server-only.** Renamed `NEXT_PUBLIC_TEXTBEE_API_KEY` →
+   `TEXTBEE_API_KEY`; `lib/sms.ts` is now `server-only`.
+4. **Shared rate limiter** (`lib/rate-limit.ts`, `globalThis`-backed) used by
+   login (email+IP and IP-only) and password reset.
+5. **Password policy:** minimum length raised to 10 across server validations.
+6. **Raw reads narrowed:** non-managers may not `SELECT *` or read
+   `password`/`resetToken` columns from `profiles` via `/api/db`.
+7. **Audit log:** `audit_log` table + `lib/audit.ts`; records logins, user
+   create/update/delete, permission changes and password resets.
+8. **CSP** via `proxy.ts` (enforcing). Scripts allow `'unsafe-inline'` because
+   Next prerenders pages statically (a per-request nonce can't be injected into
+   static HTML); switch to a nonce policy if the app is made fully dynamic.
+9. **Lateral escalation closed:** non-admins can only change their *own*
+   password through the data proxy, and may not target ADMIN/MANAGER rows.
+10. **Server-side seeder:** `/api/dev/seed` (404 in production) replaces the
+    client-side bcrypt seeding.
 
-1. **Finish or remove the password reset.** The token is generated and stored
-   (`profiles.resetToken` / `resetTokenExpiry`) but never consumed — the
-   `/update-password` page resets the *current session's* password instead. If
-   you keep it: add a `POST /api/auth/reset/[token]` that verifies the token +
-   expiry, is single-use, and emails the link (never returns it).
-2. **Move the JWT out of `localStorage`.** Any XSS can read it. Prefer an
-   httpOnly + Secure + SameSite=Lax cookie set by `/api/auth/login`, and a
-   `/api/auth/logout`. (While tokens live in `localStorage`, XSS = full account
-   compromise.)
-3. **Server-only SMS key.** `NEXT_PUBLIC_TEXTBEE_API_KEY` is compiled into the
-   client bundle. It is currently unused (so not yet exposed), but rename it to
-   `TEXTBEE_API_KEY` and only read it from a server route. Update `.env.example`
-   / `DEPLOYMENT.md`.
-4. **Rate limiting is per-process.** The login limiter is an in-memory `Map`
-   keyed by email+IP; behind PM2 cluster or multiple instances it is bypassable
-   and unbounded (memory growth). Use Redis/Upstash and also limit by IP alone.
-5. **Password policy.** Minimum is 6 characters with no complexity or breach
-   checks. Enforce length ≥ 10 and consider a breached-password check.
-6. **Narrow raw reads.** A role with `view_students` can `SELECT * FROM profiles`
-   (all names/emails/roles) through `/api/db`. Consider column/row restrictions
-   or dedicated, narrowly-scoped read endpoints for the enrichment queries.
-7. **Admin audit log.** No record of who changed roles/permissions, reset
-   passwords, or edited finances. Add an append-only audit table.
-8. **Content-Security-Policy.** Not set (Next injects inline scripts). Add a
-   nonce-based CSP at the reverse proxy.
-9. **Account lockout / alerting.** Add lockout or alerting on repeated failed
-   logins and on admin-account changes.
-10. **Client-side hashing.** `bcryptjs` is bundled for the `/seed` page. Hashing
-    belongs on the server; the seeder should call an API route.
+## Further hardening (not yet done)
+- Shared rate-limit store (Redis/Upstash) for multi-instance deployments.
+- Real email delivery for password resets (currently a webhook hook).
+- Breached-password check; optional 2FA for admins.
+- Alerting on repeated login failures / admin changes.
+
+## Historical findings (fixed)
+
+**Critical**
+1. Password-reset token disclosed in the API response (fixed).
+2. Privilege escalation via the raw-SQL proxy — a non-admin could edit an ADMIN
+   profile/password (fixed).
+
+**High**
+3. Demo seeder exposed in production (fixed).
+4. Missing security headers (fixed).
+5. Stored XSS in the printable receipt (fixed).
 
 ## Good practices already in place
 - Parameterized SQL everywhere; no string interpolation of user input into SQL.
