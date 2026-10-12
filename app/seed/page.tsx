@@ -34,7 +34,14 @@ export default function SeedPage() {
 
   const addStatus = (msg: string) => setStatus(prev => [...prev, msg])
 
+  // Never allow the demo seeder (which creates known default passwords) in prod.
+  const isProd = process.env.NODE_ENV === "production"
+
   const handleSeed = async () => {
+    if (isProd) {
+      setError("Demo seeding is disabled in production.")
+      return
+    }
     setLoading(true)
     setStatus([])
     setError("")
@@ -142,9 +149,14 @@ export default function SeedPage() {
             ))}
           </div>
 
-          <Button onClick={handleSeed} className="w-full" disabled={loading}>
+          <Button onClick={handleSeed} className="w-full" disabled={loading || isProd}>
             {loading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Seeding...</> : "Seed Database"}
           </Button>
+          {isProd && (
+            <p className="text-xs text-red-600">
+              Seeding is disabled in production. Create the first admin directly in the database.
+            </p>
+          )}
 
           <Button variant="outline" className="w-full" onClick={() => window.location.href = "/login"}>
             Back to Login

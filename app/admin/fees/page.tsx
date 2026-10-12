@@ -37,6 +37,15 @@ function generateReceiptNumber(): string {
   return `RCP-${y}${m}${d}-${rand}`
 }
 
+// Escape values before injecting them into the printed receipt HTML (which is
+// written into a same-origin window), to avoid stored-XSS via student names or
+// payment notes.
+function escapeHtml(value: unknown): string {
+  return String(value ?? "").replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] as string)
+  )
+}
+
 export default function FeesPage() {
   const [students, setStudents] = useState<Student[]>([])
   const [courses, setCourses] = useState<Course[]>([])
@@ -320,7 +329,7 @@ export default function FeesPage() {
     const printWindow = window.open("", "_blank")
     if (!printWindow) { alert("Please allow pop-ups to print receipt"); return }
     printWindow.document.write(`
-      <html><head><title>Receipt ${receiptPayment.receiptNumber}</title>
+      <html><head><title>Receipt ${escapeHtml(receiptPayment.receiptNumber)}</title>
       <style>
         @page { margin: 0.25in; }
         body { font-family: "Segoe UI", Arial, sans-serif; margin: 0; padding: 0; color: #111; }
@@ -347,19 +356,19 @@ export default function FeesPage() {
           <div class="title">Official Payment Receipt</div>
         </div>
         <div class="meta">
-          <div><div class="lbl">Receipt #</div><div class="val">${receiptPayment.receiptNumber}</div></div>
-          <div style="text-align:right"><div class="lbl">Date</div><div class="val">${receiptPayment.paymentDate}</div></div>
+          <div><div class="lbl">Receipt #</div><div class="val">${escapeHtml(receiptPayment.receiptNumber)}</div></div>
+          <div style="text-align:right"><div class="lbl">Date</div><div class="val">${escapeHtml(receiptPayment.paymentDate)}</div></div>
         </div>
-        <div class="row"><span class="lbl">Student</span><span class="val">${studentName}</span></div>
-        <div class="row"><span class="lbl">Payment Method</span><span class="val">${receiptPayment.paymentMethod.replace("_", " ")}</span></div>
+        <div class="row"><span class="lbl">Student</span><span class="val">${escapeHtml(studentName)}</span></div>
+        <div class="row"><span class="lbl">Payment Method</span><span class="val">${escapeHtml(receiptPayment.paymentMethod.replace("_", " "))}</span></div>
         <div class="divider"></div>
-        <div class="amount"><span class="lbl">Amount Paid</span><span class="val">${currency} ${Number(receiptPayment.amount).toLocaleString()}</span></div>
+        <div class="amount"><span class="lbl">Amount Paid</span><span class="val">${escapeHtml(currency)} ${escapeHtml(Number(receiptPayment.amount).toLocaleString())}</span></div>
         <div class="divider"></div>
-        ${receiptPayment.notes ? `<div class="row"><span class="lbl">Notes</span><span class="val">${receiptPayment.notes}</span></div><div class="divider"></div>` : ""}
+        ${receiptPayment.notes ? `<div class="row"><span class="lbl">Notes</span><span class="val">${escapeHtml(receiptPayment.notes)}</span></div><div class="divider"></div>` : ""}
         <div class="footer">
           <div class="thanks">Thank you for your payment</div>
           <div>Trainify Technology Training Institute</div>
-          <div>Receipt #${receiptPayment.receiptNumber}</div>
+          <div>Receipt #${escapeHtml(receiptPayment.receiptNumber)}</div>
         </div>
       </div>
       </body></html>

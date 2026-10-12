@@ -32,10 +32,13 @@ export async function POST(req: NextRequest) {
     })
   }
 
-  // Return success either way (no enumeration). In dev, surface the token.
+  // Return success either way (no user enumeration). The reset token is only
+  // surfaced outside production for local testing — never in production, where
+  // returning it would let anyone reset any account's password.
+  const isProd = process.env.NODE_ENV === "production"
   return NextResponse.json({
     success: true,
     message: "If an account exists for that email, a reset link has been sent.",
-    devResetToken: resetToken,
+    ...(isProd ? {} : { devResetToken: resetToken }),
   })
 }

@@ -14,6 +14,24 @@ import type { UserRole } from "@/lib/types"
 // tables; writes to `profiles` restricted to the exact columns the app needs
 // (password change, name/email edits on student/teacher management). Privilege
 // escalation (UPDATE profiles SET role) and DDL are blocked.
+//
+// Non-admin roles that may edit student/teacher profiles (add_students /
+// add_teachers) must not be able to touch an ADMIN or MANAGER row — otherwise
+// they could reset an administrator's password and take over the account.
+async function profileUpdateTargetsPrivilegedAccount(
+  userRole: UserRole,
+  sql: string,
+  args: any[]
+): Promise<boolean> {
+  if (userRole === "ADMIN" || userRole === "MANAGER") return false
+  const check = isSqlAllowed(sql, userRole)
+  if (check.table !== "profiles" || check.action !== "update") return false
+  const targetId = args.length ? args[args.length - 1] : undefined
+  if (typeof targetId !== "string" || !targetId) return false
+  const tr = await turso.execute({ sql: "select role from profiles where id = ?", args: [targetId] })
+  const role = (tr.rows[0] as any)?.role as string | undefined
+  return role === "ADMIN" || role === "MANAGER"
+}
 
 export async function POST(req: NextRequest) {
   const auth = req.headers.get("authorization")
@@ -55,6 +73,9 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: `Forbidden: insufficient permission for ${check.table ?? "unknown"} ${check.action ?? "view"}` }, { status: 403 })
       }
       const args = Array.isArray(q.args) ? q.args : []
+      if (await profileUpdateTargetsPrivilegedAccount(userRole, q.sql, args)) {
+        return NextResponse.json({ error: "Forbidden: cannot modify an administrator's profile" }, { status: 403 })
+      }
       try {
         const rs = await turso.execute({ sql: q.sql, args })
         results.push({ rows: rs.rows as any[] })
@@ -83,6 +104,9 @@ export async function POST(req: NextRequest) {
   const allowed = checkTablePermissionWithOverrides(userRole, overrides, table, action)
   if (!allowed) {
     return NextResponse.json({ error: `Forbidden: insufficient permission for ${table} ${action}` }, { status: 403 })
+  }
+  if (await profileUpdateTargetsPrivilegedAccount(userRole, sql, args)) {
+    return NextResponse.json({ error: "Forbidden: cannot modify an administrator's profile" }, { status: 403 })
   }
 
   try {
